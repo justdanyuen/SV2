@@ -90,7 +90,22 @@ void PluginEditor::buildControls() {
     const int sel = juce::jlimit(0, 5, instanceSelector.getSelectedId() - 1);
     const float norm = static_cast<float>(sel) / 5.f;
     svProcessor.getParameterRefs().voiceGroup.setValueNotifyingHost(norm);
+    // Update selector color to match chosen group
+    const juce::Colour col = groupColour(sel);
+    instanceSelector.setColour(juce::ComboBox::textColourId, col);
+    instanceSelector.setColour(juce::ComboBox::outlineColourId, col.withAlpha(0.6f));
+    instanceSelector.setColour(juce::ComboBox::arrowColourId, col);
+    repaint();
   };
+  // Set initial color from current parameter
+  {
+    const int cur = juce::jlimit(0, 5,
+        svProcessor.getParameterRefs().voiceGroup.getIndex());
+    const juce::Colour col = groupColour(cur);
+    instanceSelector.setColour(juce::ComboBox::textColourId, col);
+    instanceSelector.setColour(juce::ComboBox::outlineColourId, col.withAlpha(0.6f));
+    instanceSelector.setColour(juce::ComboBox::arrowColourId, col);
+  }
   addAndMakeVisible(instanceSelector);
 
   instanceLabel.setText("This instance:", juce::dontSendNotification);
@@ -123,6 +138,14 @@ void PluginEditor::buildControls() {
     gc.enableButton.setButtonText("on");
     gc.enableButton.setToggleState(true, juce::dontSendNotification);
     gc.enableButton.setColour(juce::ToggleButton::textColourId, col);
+    gc.enableButton.onClick = [this, gi] {
+      const bool on = groupControls[static_cast<size_t>(gi)].enableButton.getToggleState();
+      if (on)
+        enabledMask = static_cast<uint8_t>(enabledMask | (1u << gi));
+      else
+        enabledMask = static_cast<uint8_t>(enabledMask & ~(1u << gi));
+      repaint();
+    };
     addAndMakeVisible(gc.enableButton);
 
     gc.trimSlider.setSliderStyle(juce::Slider::LinearHorizontal);
@@ -171,12 +194,26 @@ void PluginEditor::switchTab(int index) {
 void PluginEditor::paint(juce::Graphics& g) {
   g.fillAll(juce::Colour(0xff141418));
 
+  // Title bar
+  g.setColour(juce::Colour(0xff1e1e26));
+  g.fillRect(0, 0, getWidth(), kTabBarH);
+
+  // Plugin name left of tabs
+  g.setFont(juce::Font(juce::FontOptions().withHeight(11.f)));
+  g.setColour(juce::Colour(0xff888888));
+  g.drawText("SV2", 6, 0, 120, kTabBarH,
+             juce::Justification::centredLeft);
+
+  // Separator line below tab bar
+  g.setColour(juce::Colour(0xff2a2a35));
+  g.drawHorizontalLine(kTabBarH, 0.f, static_cast<float>(getWidth()));
+
   // Draw active visualizer with explicit bounds via drawInto()
   const auto viewBounds = juce::Rectangle<int>(0, kTabBarH, getWidth(), kViewH);
   if (activeTab == 0)
-    surroundView.drawInto(g, viewBounds);
+    surroundView.drawInto(g, viewBounds, enabledMask);
   else
-    spectrumView.drawInto(g, viewBounds);
+    spectrumView.drawInto(g, viewBounds, enabledMask);
 
   // Control area separator
   const int ctrlY = kTabBarH + kViewH + 4;
@@ -191,22 +228,20 @@ void PluginEditor::paint(juce::Graphics& g) {
                static_cast<int>(colW), kCtrlH);
   }
 
-  // Shared memory status
-  g.setFont(9.f);
-  juce::String status = "shm: ";
+  // Subtle status — shows which groups are actively writing data
+  static const char* grpNames[] = {"So","Me","Al","Te","Ba","Bs"};
+  g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
+  float sx = 6.f;
   for (int gi = 0; gi < kGroupCount; ++gi) {
     PluginProcessor::GroupSnapshot snap;
     const bool active = svProcessor.readGroupSnapshot(gi, snap) && snap.enabled;
-    status += active ? "1" : "0";
+    g.setColour(active ? groupColour(gi).withAlpha(0.8f)
+                       : juce::Colour(0x33ffffff));
+    g.drawText(grpNames[gi], static_cast<int>(sx),
+               getHeight() - 14, 18, 12,
+               juce::Justification::centred);
+    sx += 20.f;
   }
-  const int grpIdx = juce::jlimit(0, 5,
-      svProcessor.getParameterRefs().voiceGroup.getIndex());
-  const char* grpNames[] = {"Soprano","Mezzo","Alto","Tenor","Baritone","Bass"};
-  status += "  this: " + juce::String(grpNames[grpIdx]);
-  status += isTimerRunning() ? "  [live]" : "  [stopped]";
-  g.setColour(juce::Colour(0x88ffffff));
-  g.drawText(status, 4, getHeight() - 16, getWidth() - 8, 12,
-             juce::Justification::left);
 }
 
 // =========================================================================
@@ -216,32 +251,32 @@ void PluginEditor::resized() {
   const int W = getWidth();
 
   // Tab bar
-  surroundTab.setBounds(8, 4, 140, kTabBarH - 8);
-  spectrumTab.setBounds(154, 4, 160, kTabBarH - 8);
+  surroundTab.setBounds(8, 5, 150, kTabBarH - 10);
+  spectrumTab.setBounds(164, 5, 170, kTabBarH - 10);
 
   // Visualizer area
   const auto viewBounds = juce::Rectangle<int>(0, kTabBarH, W, kViewH);
   surroundView.setBounds(viewBounds);
   spectrumView.setBounds(viewBounds);
 
-  // Instance selector bar — sits above the group columns
-  const int ctrlY  = kTabBarH + kViewH + 8;
-  instanceLabel   .setBounds(4,   ctrlY,     90, 18);
-  instanceSelector.setBounds(96,  ctrlY,     140, 18);
+  // Instance selector bar
+  const int ctrlY = kTabBarH + kViewH + 8;
+  instanceLabel   .setBounds(6,   ctrlY + 2,  88, 16);
+  instanceSelector.setBounds(96,  ctrlY,      160, 22);
 
-  // Per-group status columns
-  const int colsY  = ctrlY + 26;
-  const int colW   = W / kGroupCount;
+  // Per-group status columns — evenly spaced across full width
+  const int colsY = ctrlY + 30;
+  const int colW  = W / kGroupCount;
 
   for (int gi = 0; gi < kGroupCount; ++gi) {
     auto& gc = groupControls[gi];
-    const int x = colW * gi + 4;
-    const int w = colW - 8;
+    const int x = colW * gi + 5;
+    const int w = colW - 10;
 
-    gc.groupSelector.setBounds(x, colsY,      w, 16);
-    gc.enableButton .setBounds(x, colsY + 20, w, 16);
-    gc.trimSlider   .setBounds(x, colsY + 40, w, 22);
-    gc.trimLabel    .setBounds(x, colsY + 64, w, 14);
+    gc.groupSelector.setBounds(x, colsY,      w, 18);
+    gc.enableButton .setBounds(x, colsY + 22, w, 18);
+    gc.trimSlider   .setBounds(x, colsY + 44, w, 22);
+    gc.trimLabel    .setBounds(x, colsY + 68, w, 14);
   }
 }
 

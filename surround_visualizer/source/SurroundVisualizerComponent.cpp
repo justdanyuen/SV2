@@ -2,8 +2,6 @@
 
 namespace surround_vis {
 
-constexpr float SurroundVisualizerComponent::DIR_ANGLES[5];
-
 SurroundVisualizerComponent::SurroundVisualizerComponent(PluginProcessor& p)
     : svProcessor(p) {
   for (int i = 0; i < 30; ++i)
@@ -169,7 +167,7 @@ void SurroundVisualizerComponent::paint(juce::Graphics& g) {
 
   if (useTestData) {
     g.setColour(juce::Colour(0x88ffffff));
-    g.setFont(10.f);
+    g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
     g.drawText("test mode — no audio", 8, static_cast<int>(H) - 18,
                200, 14, juce::Justification::left);
   }
@@ -184,16 +182,10 @@ void SurroundVisualizerComponent::paint(juce::Graphics& g) {
 // drawInto — called from editor paint() with explicit bounds
 // =========================================================================
 void SurroundVisualizerComponent::drawInto(juce::Graphics& g,
-                                            juce::Rectangle<int> bounds) {
+                                            juce::Rectangle<int> bounds,
+                                            uint8_t enabledMask) {
   const float W = static_cast<float>(bounds.getWidth());
   const float H = static_cast<float>(bounds.getHeight());
-
-  // DEBUG: draw a moving red circle to confirm drawInto is called
-  const float t2 = static_cast<float>(juce::Time::getMillisecondCounterHiRes() * 0.001);
-  const float bx = bounds.getX() + (std::sin(t2 * 2.f) + 1.f) * 0.5f * W;
-  const float by = bounds.getY() + H * 0.5f;
-  g.setColour(juce::Colours::red);
-  g.fillEllipse(bx - 10.f, by - 10.f, 20.f, 20.f);
 
   if (W < 10.f || H < 10.f) return;
 
@@ -232,6 +224,14 @@ void SurroundVisualizerComponent::drawInto(juce::Graphics& g,
   const float cy   = H * 0.5f - 10.f;
   const float maxR = std::min(W, H) * 0.36f;
 
+  // Apply visibility mask — temporarily disable hidden groups.
+  bool savedEnabled[kGroupCount];
+  for (int gi = 0; gi < kGroupCount; ++gi) {
+    savedEnabled[gi]  = groups[static_cast<size_t>(gi)].enabled;
+    if (!(enabledMask & (1u << gi)))
+      groups[static_cast<size_t>(gi)].enabled = false;
+  }
+
   drawGrid       (g, cx, cy, maxR);
   drawSpeakers   (g, cx, cy, maxR);
   drawLfeZone    (g, cx, cy, maxR);
@@ -239,9 +239,13 @@ void SurroundVisualizerComponent::drawInto(juce::Graphics& g,
   drawPolarCurves(g, cx, cy, maxR);
   drawListener   (g, cx, cy);
 
+  // Restore enabled flags
+  for (int gi = 0; gi < kGroupCount; ++gi)
+    groups[static_cast<size_t>(gi)].enabled = savedEnabled[gi];
+
   if (useTestData) {
     g.setColour(juce::Colour(0x88ffffff));
-    g.setFont(10.f);
+    g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
     g.drawText("test mode — no audio", 8, static_cast<int>(H) - 18,
                200, 14, juce::Justification::left);
   }
@@ -277,7 +281,7 @@ void SurroundVisualizerComponent::drawSpeakers(juce::Graphics& g,
     g.drawEllipse(sx - 5.f, sy - 5.f, 10.f, 10.f, 0.5f);
 
     g.setColour(juce::Colour(0xff666666));
-    g.setFont(10.f);
+    g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
     const bool above = std::sin(a) < -0.2f;
     g.drawText(names[i],
                static_cast<int>(sx) - 14,
@@ -289,73 +293,71 @@ void SurroundVisualizerComponent::drawSpeakers(juce::Graphics& g,
 void SurroundVisualizerComponent::drawLfeZone(juce::Graphics& g,
                                                float cx, float cy,
                                                float maxR) const {
-  const float zoneR = maxR + 26.f;
-  const float zx    = cx + std::cos(LFE_ANGLE) * zoneR;
-  const float zy    = cy + std::sin(LFE_ANGLE) * zoneR;
+  // Draw a subtle reference ring showing the LFE radius range
+  // Inner ring = minimum LFE radius, outer = maximum
+  const float minR = 8.f;
+  const float maxLfeR = maxR * 0.55f;
 
-  g.setColour(juce::Colour(0xff333333));
-  g.fillEllipse(zx - 5.f, zy - 5.f, 10.f, 10.f);
-  g.setColour(juce::Colour(0xff555555));
-  g.setFont(10.f);
-  g.drawText("LFE", static_cast<int>(zx) - 14,
-             static_cast<int>(zy) + 7, 28, 14,
+  // Dashed reference circle
+  juce::Path ref;
+  ref.addEllipse(cx - maxLfeR, cy - maxLfeR, maxLfeR * 2.f, maxLfeR * 2.f);
+  float dashLen[] = {2.f, 5.f};
+  juce::Path dashed;
+  juce::PathStrokeType(0.5f).createDashedStroke(dashed, ref, dashLen, 2);
+  g.setColour(juce::Colour(0xff222230));
+  g.strokePath(dashed, juce::PathStrokeType(0.5f));
+
+  // LFE label below listener
+  g.setColour(juce::Colour(0xff444455));
+  g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
+  g.drawText("LFE", static_cast<int>(cx) - 14,
+             static_cast<int>(cy) + 14, 28, 12,
              juce::Justification::centred);
 
-  // Dashed arc indicating LFE zone extent
-  juce::Path arcPath;
-  arcPath.addArc(cx - (maxR + 6.f), cy - (maxR + 6.f),
-                 (maxR + 6.f) * 2.f, (maxR + 6.f) * 2.f,
-                 LFE_ANGLE - LFE_SPAN, LFE_ANGLE + LFE_SPAN, true);
-  juce::PathStrokeType stroke(0.8f);
-  float dashLen[] = {3.f, 4.f};
-  stroke.createDashedStroke(arcPath, arcPath, dashLen, 2);
-  g.setColour(juce::Colour(0xff2a2a36));
-  g.strokePath(arcPath, juce::PathStrokeType(0.8f));
+  juce::ignoreUnused(minR, maxR);
 }
 
 void SurroundVisualizerComponent::drawLfeArcs(juce::Graphics& g,
                                                float cx, float cy,
                                                float maxR) const {
-  // Sort enabled groups by LFE level descending so lower arcs draw on top
+  // Each enabled group gets a full concentric ring centered on the listener.
+  // Ring radius = LFE level mapped to dB scale.
+  // Rings are drawn largest-first so smaller rings appear on top.
+  const float maxLfeR = maxR * 0.55f;
+
   int order[kGroupCount];
   int count = 0;
   for (int i = 0; i < kGroupCount; ++i)
-    if (groups[i].enabled) order[count++] = i;
+    if (groups[static_cast<size_t>(i)].enabled) order[count++] = i;
 
+  // Sort largest radius first (draw behind)
   std::sort(order, order + count, [this](int a, int b) {
-    return groups[a].lfeSmooth > groups[b].lfeSmooth;
+    return groups[static_cast<size_t>(a)].lfeSmooth
+         > groups[static_cast<size_t>(b)].lfeSmooth;
   });
 
   for (int oi = 0; oi < count; ++oi) {
     const int   gi  = order[oi];
-    const float lv  = groups[gi].lfeSmooth;
-    if (lv < 0.02f) continue;
+    const float lv  = groups[static_cast<size_t>(gi)].lfeSmooth;
+    if (lv < 0.001f) continue;
 
-    const float lvDb   = juce::Decibels::gainToDecibels(juce::jlimit(0.0001f,1.f,lv));
+    const float lvDb   = juce::Decibels::gainToDecibels(
+                             juce::jlimit(0.0001f, 1.f, lv));
     const float lvNorm = juce::jlimit(0.f, 1.f, (lvDb + 60.f) / 60.f);
-    const float orbitR = 4.f + lvNorm * (maxR * 0.80f);
-    const juce::Colour col = groupColour(groups[gi].colorId);
+    const float ringR  = 4.f + lvNorm * maxLfeR;
 
-    // Glow halo
-    g.setColour(col.withAlpha(lv * 0.15f));
-    juce::Path halo;
-    halo.addArc(cx - orbitR, cy - orbitR, orbitR * 2.f, orbitR * 2.f,
-                LFE_ANGLE - LFE_SPAN, LFE_ANGLE + LFE_SPAN, true);
-    g.strokePath(halo, juce::PathStrokeType(10.f + lv * 14.f));
+    const juce::Colour col = groupColour(
+        groups[static_cast<size_t>(gi)].colorId);
 
-    // Main arc
-    g.setColour(col.withAlpha(0.5f + lv * 0.45f));
-    juce::Path arc;
-    arc.addArc(cx - orbitR, cy - orbitR, orbitR * 2.f, orbitR * 2.f,
-               LFE_ANGLE - LFE_SPAN, LFE_ANGLE + LFE_SPAN, true);
-    g.strokePath(arc, juce::PathStrokeType(2.f + lv * 3.f));
+    // Outer glow
+    g.setColour(col.withAlpha(lvNorm * 0.18f));
+    g.drawEllipse(cx - ringR, cy - ringR, ringR * 2.f, ringR * 2.f,
+                  8.f + lvNorm * 10.f);
 
-    // Level dot at bottom of arc
-    const float dotX = cx + std::cos(LFE_ANGLE) * orbitR;
-    const float dotY = cy + std::sin(LFE_ANGLE) * orbitR;
-    const float dotR = 3.f + lv * 3.f;
-    g.setColour(col.withAlpha(0.7f + lv * 0.3f));
-    g.fillEllipse(dotX - dotR, dotY - dotR, dotR * 2.f, dotR * 2.f);
+    // Main ring stroke
+    g.setColour(col.withAlpha(0.35f + lvNorm * 0.55f));
+    g.drawEllipse(cx - ringR, cy - ringR, ringR * 2.f, ringR * 2.f,
+                  1.5f + lvNorm * 2.f);
   }
 }
 
@@ -447,7 +449,7 @@ void SurroundVisualizerComponent::drawListener(juce::Graphics& g,
   g.setColour(juce::Colour(0xffe0e0e0));
   g.fillEllipse(cx - 6.f, cy - 6.f, 12.f, 12.f);
   g.setColour(juce::Colour(0xff666666));
-  g.setFont(10.f);
+  g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
   g.drawText("listener", static_cast<int>(cx) - 28,
              static_cast<int>(cy) + 10, 56, 14,
              juce::Justification::centred);

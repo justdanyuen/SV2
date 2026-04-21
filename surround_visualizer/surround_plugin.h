@@ -4,7 +4,7 @@ BEGIN_JUCE_MODULE_DECLARATION
    ID:            surround_plugin
    vendor:        WolfSound
    version:       1.0.0
-   name:          Surround Visualizer Plugin
+   name:          SurroundVisualizer Plugin
    description:   Core of the surround sound visualizer plugin
    dependencies:  juce_audio_utils, juce_dsp
    website:       https://thewolfsound.com

@@ -130,7 +130,7 @@ void SpectrumVisualizerComponent::paint(juce::Graphics& g) {
 
   if (useTestData) {
     g.setColour(juce::Colour(0x44ffffff));
-    g.setFont(10.f);
+    g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
     g.drawText("test mode — no audio", 8,
                getHeight() - 18, 200, 14,
                juce::Justification::left);
@@ -143,7 +143,8 @@ void SpectrumVisualizerComponent::paint(juce::Graphics& g) {
 // drawInto — called from editor paint() with explicit bounds
 // =========================================================================
 void SpectrumVisualizerComponent::drawInto(juce::Graphics& g,
-                                            juce::Rectangle<int> bounds) {
+                                            juce::Rectangle<int> bounds,
+                                            uint8_t enabledMask) {
   if (bounds.getWidth() < 10 || bounds.getHeight() < 10) return;
 
   juce::Graphics::ScopedSaveState state(g);
@@ -184,13 +185,24 @@ void SpectrumVisualizerComponent::drawInto(juce::Graphics& g,
     }
   }
 
+  // Apply visibility mask
+  bool savedEnabled[kGroupCount];
+  for (int gi = 0; gi < kGroupCount; ++gi) {
+    savedEnabled[gi] = groups[static_cast<size_t>(gi)].enabled;
+    if (!(enabledMask & (1u << gi)))
+      groups[static_cast<size_t>(gi)].enabled = false;
+  }
+
   drawGrid  (g, plotArea);
   drawCurves(g, plotArea);
   drawLegend(g, fb.withTop(fb.getBottom() - legendH));
 
+  for (int gi = 0; gi < kGroupCount; ++gi)
+    groups[static_cast<size_t>(gi)].enabled = savedEnabled[gi];
+
   if (useTestData) {
     g.setColour(juce::Colour(0x44ffffff));
-    g.setFont(10.f);
+    g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
     g.drawText("test mode — no audio", 8,
                bounds.getHeight() - 18, 200, 14,
                juce::Justification::left);
@@ -208,7 +220,7 @@ void SpectrumVisualizerComponent::drawGrid(juce::Graphics& g,
                                 "1k","2k","5k","10k","20k"};
 
   g.setColour(juce::Colour(0xff1e1e26));
-  g.setFont(9.f);
+  g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
 
   // Horizontal amplitude grid lines
   for (float v : {0.25f, 0.5f, 0.75f, 1.0f}) {
@@ -278,7 +290,7 @@ void SpectrumVisualizerComponent::drawLegend(juce::Graphics& g,
                                               juce::Rectangle<float> a) const {
   static const char* names[] = {"Soprano","Mezzo","Alto","Tenor","Baritone","Bass"};
   const float itemW = a.getWidth() / static_cast<float>(kGroupCount);
-  g.setFont(10.f);
+  g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
   for (int gi = 0; gi < kGroupCount; ++gi) {
     if (!groups[gi].enabled) continue;
     const float x = a.getX() + itemW * gi;

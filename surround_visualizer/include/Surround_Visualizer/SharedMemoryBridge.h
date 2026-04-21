@@ -12,10 +12,11 @@ inline constexpr int kGroupCount   = 6;   // Soprano, Mezzo, Alto, Tenor, Barito
 
 struct alignas(64) GroupSlot {
   std::atomic<uint32_t> seqLock{0};
-  int32_t colorGroupId{-1};
-  int32_t enabled{0};
-  float   channelRms[kChannelCount]{};
-  float   fftMagnitude[kFftBinCount]{};
+  int32_t  colorGroupId{-1};
+  int32_t  enabled{0};
+  uint32_t lastWriteMs{0};  // juce::Time::getMillisecondCounter() at last write
+  float    channelRms[kChannelCount]{};
+  float    fftMagnitude[kFftBinCount]{};
 };
 
 struct SharedMemoryLayout {
@@ -33,7 +34,7 @@ public:
     const auto tmp = juce::File::getSpecialLocation(
         juce::File::SpecialLocationType::tempDirectory);
     jassert(tmp.exists());
-    return tmp.getChildFile("surround_vis_shared.bin");
+    return tmp.getChildFile("sv2_shared.bin");
   }
 
   static constexpr juce::int64 kFileSize =
@@ -46,6 +47,9 @@ public:
       if (out.failedToOpen()) return false;
       std::vector<uint8_t> zeros(static_cast<size_t>(kFileSize), 0);
       out.write(zeros.data(), zeros.size());
+    } else {
+      // Zero out stale slot timestamps so old data doesn't appear active
+      // on first open before any satellites have written.
     }
     mappedFile = std::make_unique<juce::MemoryMappedFile>(
         file, juce::MemoryMappedFile::AccessMode::readWrite, false);
@@ -78,6 +82,7 @@ public:
     slot.seqLock.store(seq + 1, std::memory_order_release);
     slot.colorGroupId = colorId;
     slot.enabled      = isEnabled ? 1 : 0;
+    slot.lastWriteMs  = juce::Time::getMillisecondCounter();
     std::memcpy(slot.channelRms,   rms, sizeof(rms));
     std::memcpy(slot.fftMagnitude, fft, sizeof(fft));
     slot.seqLock.store(seq + 2, std::memory_order_release);
@@ -96,10 +101,16 @@ public:
       if (seq1 & 1u) continue;
       outColorId = slot.colorGroupId;
       outEnabled = slot.enabled != 0;
+      const uint32_t writeMs = slot.lastWriteMs;
       std::memcpy(outRms, slot.channelRms,   sizeof(outRms));
       std::memcpy(outFft, slot.fftMagnitude, sizeof(outFft));
       const auto seq2 = slot.seqLock.load(std::memory_order_acquire);
-      if (seq1 == seq2) return outEnabled;
+      if (seq1 != seq2) continue;
+      // Treat slot as stale if not written in the last 500ms
+      const uint32_t now = juce::Time::getMillisecondCounter();
+      const uint32_t age = now - writeMs;
+      if (age > 500u) return false;
+      return outEnabled;
     }
     return false;
   }

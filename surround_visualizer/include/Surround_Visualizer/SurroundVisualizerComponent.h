@@ -17,7 +17,7 @@ public:
 
   // Draw directly into a graphics context with explicit bounds.
   // Used when the editor calls this from its own paint() method.
-  void drawInto(juce::Graphics& g, juce::Rectangle<int> bounds);
+  void drawInto(juce::Graphics& g, juce::Rectangle<int> bounds, uint8_t enabledMask = 0x3F);
 
 private:
 
@@ -58,8 +58,6 @@ private:
       150.f * DEG,  // Ls
        30.f * DEG,  // Rs
   };
-  static constexpr float LFE_ANGLE = 90.f * DEG;   // 6 o'clock
-  static constexpr float LFE_SPAN  = 40.f * DEG;   // arc half-width
 
   static constexpr int POLAR_STEPS = 360;
   static constexpr int SMOOTH_HALF = 8;

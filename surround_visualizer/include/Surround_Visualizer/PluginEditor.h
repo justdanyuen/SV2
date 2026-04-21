@@ -36,14 +36,18 @@ private:
   };
   std::array<GroupControls, kGroupCount> groupControls;
 
+  // Bitmask — bit gi set means group gi is visible in the visualizers.
+  // All groups visible by default.
+  uint8_t enabledMask{0x3F};  // 0011 1111 = all 6 groups on
+
   void buildControls();
   void switchTab(int index);
   void timerCallback() override;
 
-  static constexpr int kEditorW = 720;
-  static constexpr int kEditorH = 600;
-  static constexpr int kTabBarH = 34;
-  static constexpr int kCtrlH   = 130;
+  static constexpr int kEditorW = 800;
+  static constexpr int kEditorH = 620;
+  static constexpr int kTabBarH = 38;
+  static constexpr int kCtrlH   = 140;
   static constexpr int kViewH   = kEditorH - kTabBarH - kCtrlH - 8;
 
   static juce::Colour groupColour(int id);

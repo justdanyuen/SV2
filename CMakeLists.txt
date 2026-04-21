@@ -41,11 +41,12 @@ endif()
 # -------------------------------------------------------------------------
 # Plugin target
 # -------------------------------------------------------------------------
-set(SURROUND_VIS_PLUGIN_NAME "SurroundVis")
+set(SV2_PLUGIN_NAME "SV2")
+set(SV2_FULL_NAME "Surround Vocal Spectrum Visualizer")
 
 juce_add_plugin(
-  SurroundVisPlugin
-  PRODUCT_NAME      ${SURROUND_VIS_PLUGIN_NAME}
+  SV2Plugin
+  PRODUCT_NAME      ${SV2_PLUGIN_NAME}
   VERSION           0.0.0
   COMPANY_NAME      "WolfSound"
   PLUGIN_MANUFACTURER_CODE Wfsd
@@ -65,20 +66,20 @@ juce_add_plugin(
 # Re-sign the standalone with microphone entitlement after build
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   add_custom_command(
-    TARGET SurroundVisPlugin_Standalone POST_BUILD
+    TARGET SV2Plugin_Standalone POST_BUILD
     COMMAND codesign --force --deep --sign -
       --entitlements "${CMAKE_CURRENT_SOURCE_DIR}/surround_visualizer/entitlements.plist"
-      "$<TARGET_BUNDLE_DIR:SurroundVisPlugin_Standalone>"
+      "$<TARGET_BUNDLE_DIR:SV2Plugin_Standalone>"
     COMMENT "Re-signing standalone with microphone entitlement"
   )
 endif()
 
-target_compile_definitions(SurroundVisPlugin
+target_compile_definitions(SV2Plugin
   PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
-    SURROUND_VIS_PLUGIN_NAME="${SURROUND_VIS_PLUGIN_NAME}"
+    SV2_PLUGIN_NAME="${SV2_PLUGIN_NAME}"
 )
 
 # -------------------------------------------------------------------------
@@ -87,7 +88,7 @@ target_compile_definitions(SurroundVisPlugin
 # juce_audio_utils provides AudioProcessorEditor base and GUI helpers.
 # -------------------------------------------------------------------------
 target_link_libraries(
-  SurroundVisPlugin
+  SV2Plugin
   PRIVATE
     juce::juce_audio_processors
     juce::juce_audio_utils
@@ -104,7 +105,7 @@ target_link_libraries(
 # -------------------------------------------------------------------------
 # Source files
 # -------------------------------------------------------------------------
-target_sources(SurroundVisPlugin
+target_sources(SV2Plugin
   PRIVATE
     surround_visualizer/source/Parameters.cpp
     surround_visualizer/source/PluginProcessor.cpp
@@ -114,7 +115,7 @@ target_sources(SurroundVisPlugin
     surround_visualizer/source/SpectrumVisualizerComponent.cpp
 )
 
-target_include_directories(SurroundVisPlugin
+target_include_directories(SV2Plugin
   PRIVATE
     surround_visualizer
     surround_visualizer/include

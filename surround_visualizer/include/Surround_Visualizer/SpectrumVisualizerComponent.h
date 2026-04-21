@@ -16,7 +16,7 @@ public:
   void tick();
 
   // Draw directly into a graphics context with explicit bounds.
-  void drawInto(juce::Graphics& g, juce::Rectangle<int> bounds);
+  void drawInto(juce::Graphics& g, juce::Rectangle<int> bounds, uint8_t enabledMask = 0x3F);
 
 private:
 

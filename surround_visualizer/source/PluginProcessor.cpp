@@ -13,7 +13,7 @@ public:
   FftAnalyzer(std::array<SampleFifo<float>, kChannelCount>& fifos,
               SharedMemoryBridge& bridge,
               Parameters& params)
-      : juce::Thread("SurroundVis FFT"),
+      : juce::Thread("SV2 FFT"),
         channelFifos(fifos),
         sharedMemory(bridge),
         parameters(params),
@@ -122,7 +122,7 @@ PluginProcessor::~PluginProcessor() {
 }
 
 const juce::String PluginProcessor::getName() const {
-  return SURROUND_VIS_PLUGIN_NAME;
+  return SV2_PLUGIN_NAME;
 }
 
 bool PluginProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
