@@ -1,0 +1,10 @@
+cmake-build/
+build/
+*.o
+*.a
+*.dylib
+*.so
+*.app
+*.component
+*.vst3
+.DS_Store

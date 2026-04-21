@@ -1,0 +1,5 @@
+#include "surround_plugin.h"
+#include "source/JsonSerializer.cpp"
+#include "source/Parameters.cpp"
+#include "source/PluginEditor.cpp"
+#include "source/PluginProcessor.cpp"
