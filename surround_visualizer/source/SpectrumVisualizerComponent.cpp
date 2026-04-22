@@ -29,7 +29,7 @@ void SpectrumVisualizerComponent::tick() {
         g.bins[b]        = snap.fft[b];
         // Attack fast (0.4f), decay slow (0.08f) — classic RTA ballistics.
         const float target = snap.fft[b];
-        const float rate   = target > g.smoothBins[b] ? 0.40f : 0.08f;
+        const float rate   = target > g.smoothBins[b] ? 0.50f : 0.12f;
         g.smoothBins[b]   += (target - g.smoothBins[b]) * rate;
       }
     } else {
@@ -38,7 +38,7 @@ void SpectrumVisualizerComponent::tick() {
       auto& grp = groups[gi];
       bool anyNonZero = false;
       for (int b = 0; b < kFftBinCount; ++b) {
-        grp.smoothBins[b] *= 0.85f;
+        grp.smoothBins[b] *= 0.90f;
         if (grp.smoothBins[b] > 0.0001f) anyNonZero = true;
       }
       grp.lfeLevel *= 0.85f;

@@ -60,7 +60,7 @@ private:
   };
 
   static constexpr int POLAR_STEPS = 360;
-  static constexpr int SMOOTH_HALF = 8;
+  static constexpr int SMOOTH_HALF = 4;
 
   // Color table matching the voice group order
   static juce::Colour groupColour(int id);

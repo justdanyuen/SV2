@@ -35,6 +35,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   set_directory_properties(PROPERTIES
     JUCE_VST3_COPY_DIR "$ENV{HOME}/Library/Audio/Plug-Ins/VST3"
     JUCE_AU_COPY_DIR   "$ENV{HOME}/Library/Audio/Plug-Ins/Components"
+    JUCE_AAX_COPY_DIR  "/Library/Application Support/Avid/Audio/Plug-Ins"
   )
 endif()
 
@@ -43,6 +44,9 @@ endif()
 # -------------------------------------------------------------------------
 set(SV2_PLUGIN_NAME "SV2")
 set(SV2_FULL_NAME "Surround Vocal Spectrum Visualizer")
+
+# Point JUCE to the bundled AAX SDK
+juce_set_aax_sdk_path("${CMAKE_CURRENT_SOURCE_DIR}/libs/juce/modules/juce_audio_plugin_client/AAX/SDK")
 
 juce_add_plugin(
   SV2Plugin
@@ -55,6 +59,7 @@ juce_add_plugin(
     Standalone
     AU
     VST3
+    AAX
   IS_SYNTH          FALSE
   NEEDS_MIDI_INPUT  FALSE
   NEEDS_MIDI_OUTPUT FALSE

@@ -51,7 +51,7 @@ void PluginEditor::visibilityChanged() {
   // the message thread is fully running — fixes frozen UI when
   // launched via macOS 'open' command.
   if (isVisible() && !isTimerRunning())
-    startTimerHz(30);
+    startTimerHz(60);
 }
 
 PluginEditor::~PluginEditor() {
@@ -135,7 +135,7 @@ void PluginEditor::buildControls() {
                                col.withAlpha(0.3f));
     addAndMakeVisible(gc.groupSelector);
 
-    gc.enableButton.setButtonText("on");
+    gc.enableButton.setButtonText("show");
     gc.enableButton.setToggleState(true, juce::dontSendNotification);
     gc.enableButton.setColour(juce::ToggleButton::textColourId, col);
     gc.enableButton.onClick = [this, gi] {

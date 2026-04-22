@@ -28,25 +28,29 @@ void SurroundVisualizerComponent::tick() {
         g.enabled = true;
         g.colorId = snap.colorId;
         // Smooth raw RMS values to avoid choppy polar curve movement.
-        // 0.15f gives ~200ms settling time at 30fps which feels natural.
-        const float rmsSmooth = 0.15f;
-        g.dirRms[0] += (snap.rms[0] - g.dirRms[0]) * rmsSmooth;
-        g.dirRms[1] += (snap.rms[1] - g.dirRms[1]) * rmsSmooth;
-        g.dirRms[2] += (snap.rms[2] - g.dirRms[2]) * rmsSmooth;
-        g.dirRms[3] += (snap.rms[4] - g.dirRms[3]) * rmsSmooth;
-        g.dirRms[4] += (snap.rms[5] - g.dirRms[4]) * rmsSmooth;
+        // Asymmetric smoothing: fast attack (0.45f) slow decay (0.10f)
+        // gives snappy transient response with smooth falloff.
+        const auto rmsLerp = [](float cur, float tgt) {
+          const float rate = tgt > cur ? 0.45f : 0.10f;
+          return cur + (tgt - cur) * rate;
+        };
+        g.dirRms[0] = rmsLerp(g.dirRms[0], snap.rms[0]);
+        g.dirRms[1] = rmsLerp(g.dirRms[1], snap.rms[1]);
+        g.dirRms[2] = rmsLerp(g.dirRms[2], snap.rms[2]);
+        g.dirRms[3] = rmsLerp(g.dirRms[3], snap.rms[4]);
+        g.dirRms[4] = rmsLerp(g.dirRms[4], snap.rms[5]);
         g.lfeRms     = snap.rms[3];
-        g.lfeSmooth += (g.lfeRms - g.lfeSmooth) * 0.12f;
+        g.lfeSmooth += (g.lfeRms - g.lfeSmooth) * 0.25f;
       } else {
         // Slot stale — decay RMS toward zero so curve fades out cleanly.
         auto& g = groups[gi];
         bool anyNonZero = false;
         for (int ch = 0; ch < 5; ++ch) {
-          g.dirRms[ch] *= 0.85f;
+          g.dirRms[ch] *= 0.92f;
           if (g.dirRms[ch] > 0.0001f) anyNonZero = true;
         }
-        g.lfeRms    *= 0.85f;
-        g.lfeSmooth *= 0.85f;
+        g.lfeRms    *= 0.92f;
+        g.lfeSmooth *= 0.92f;
         if (!anyNonZero) g.enabled = false;
       }
     }
@@ -104,7 +108,7 @@ void SurroundVisualizerComponent::generateTestData() {
     if (g.lfeSmooth < 0.001f)
       g.lfeSmooth = g.lfeRms;
     else
-      g.lfeSmooth += (g.lfeRms - g.lfeSmooth) * 0.12f;
+      g.lfeSmooth += (g.lfeRms - g.lfeSmooth) * 0.25f;
   }
 }
 
@@ -149,7 +153,7 @@ void SurroundVisualizerComponent::paint(juce::Graphics& g) {
       }
       const float lp = 0.18f * std::sin(t * 0.4f + gi * 0.7f);
       grp.lfeRms    = juce::jlimit(0.05f, 1.f, baseLfe[gi] + lp);
-      grp.lfeSmooth = grp.lfeSmooth * 0.88f + grp.lfeRms * 0.12f;
+      grp.lfeSmooth = grp.lfeSmooth * 0.75f + grp.lfeRms * 0.25f;
     }
 
   }
@@ -216,7 +220,7 @@ void SurroundVisualizerComponent::drawInto(juce::Graphics& g,
       }
       const float lp = 0.18f * std::sin(t * 0.4f + gi * 0.7f);
       grp.lfeRms    = juce::jlimit(0.05f, 1.f, baseLfe[gi] + lp);
-      grp.lfeSmooth = grp.lfeSmooth * 0.88f + grp.lfeRms * 0.12f;
+      grp.lfeSmooth = grp.lfeSmooth * 0.75f + grp.lfeRms * 0.25f;
     }
   }
 
@@ -339,25 +343,27 @@ void SurroundVisualizerComponent::drawLfeArcs(juce::Graphics& g,
   for (int oi = 0; oi < count; ++oi) {
     const int   gi  = order[oi];
     const float lv  = groups[static_cast<size_t>(gi)].lfeSmooth;
-    if (lv < 0.001f) continue;
 
-    const float lvDb   = juce::Decibels::gainToDecibels(
-                             juce::jlimit(0.0001f, 1.f, lv));
-    const float lvNorm = juce::jlimit(0.f, 1.f, (lvDb + 60.f) / 60.f);
+    // Use -80dB floor so rings are always faintly visible,
+    // showing users the feature exists even with no LFE signal.
+    const float lvDb   = lv > 0.00001f
+        ? juce::Decibels::gainToDecibels(juce::jlimit(0.00001f, 1.f, lv))
+        : -80.f;
+    const float lvNorm = juce::jlimit(0.f, 1.f, (lvDb + 80.f) / 80.f);
     const float ringR  = 4.f + lvNorm * maxLfeR;
 
     const juce::Colour col = groupColour(
         groups[static_cast<size_t>(gi)].colorId);
 
-    // Outer glow
-    g.setColour(col.withAlpha(lvNorm * 0.18f));
+    // Outer glow — subtle at low levels, bright with signal
+    g.setColour(col.withAlpha(0.04f + lvNorm * 0.18f));
     g.drawEllipse(cx - ringR, cy - ringR, ringR * 2.f, ringR * 2.f,
-                  8.f + lvNorm * 10.f);
+                  6.f + lvNorm * 10.f);
 
-    // Main ring stroke
-    g.setColour(col.withAlpha(0.35f + lvNorm * 0.55f));
+    // Main ring — always faintly visible, brightens with LFE signal
+    g.setColour(col.withAlpha(0.12f + lvNorm * 0.65f));
     g.drawEllipse(cx - ringR, cy - ringR, ringR * 2.f, ringR * 2.f,
-                  1.5f + lvNorm * 2.f);
+                  1.f + lvNorm * 2.5f);
   }
 }
 
