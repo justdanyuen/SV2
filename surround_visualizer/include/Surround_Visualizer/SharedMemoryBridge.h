@@ -106,10 +106,12 @@ public:
       std::memcpy(outFft, slot.fftMagnitude, sizeof(outFft));
       const auto seq2 = slot.seqLock.load(std::memory_order_acquire);
       if (seq1 != seq2) continue;
-      // Treat slot as stale if not written in the last 500ms
+      // Treat slot as stale if not written in the last 2000ms.
+      // 2s timeout accommodates DAW session load where multiple instances
+      // initialize simultaneously and may not write immediately.
       const uint32_t now = juce::Time::getMillisecondCounter();
       const uint32_t age = now - writeMs;
-      if (age > 500u) return false;
+      if (age > 2000u) return false;
       return outEnabled;
     }
     return false;

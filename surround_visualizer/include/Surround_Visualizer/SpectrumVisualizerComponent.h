@@ -29,6 +29,9 @@ private:
   };
   std::array<GroupData, kGroupCount> groups;
 
+  // Summed master curve — average of all enabled groups
+  float masterBins[kFftBinCount]{};
+
   void generateTestData();
   void drawGrid    (juce::Graphics&, juce::Rectangle<float> area) const;
   void drawCurves  (juce::Graphics&, juce::Rectangle<float> area) const;

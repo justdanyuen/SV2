@@ -56,6 +56,17 @@ public:
     return audioRunning.load(std::memory_order_relaxed);
   }
 
+  bool sharedMemoryIsOpen() const noexcept {
+    return sharedMemory.isOpen();
+  }
+
+  void reinitSlot(int groupId) {
+    if (!sharedMemory.isOpen()) return;
+    float zeroRms[kChannelCount]{};
+    float zeroFft[kFftBinCount]{};
+    sharedMemory.writeSlot(groupId, groupId, true, zeroRms, zeroFft);
+  }
+
 private:
   Parameters parameters{*this};
   std::array<SampleFifo<float>, kChannelCount> channelFifos;

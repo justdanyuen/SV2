@@ -29,7 +29,7 @@ void SpectrumVisualizerComponent::tick() {
         g.bins[b]        = snap.fft[b];
         // Attack fast (0.4f), decay slow (0.08f) — classic RTA ballistics.
         const float target = snap.fft[b];
-        const float rate   = target > g.smoothBins[b] ? 0.50f : 0.12f;
+        const float rate   = target > g.smoothBins[b] ? 0.25f : 0.05f;
         g.smoothBins[b]   += (target - g.smoothBins[b]) * rate;
       }
     } else {
@@ -46,6 +46,21 @@ void SpectrumVisualizerComponent::tick() {
     }
     // Do NOT set enabled=false here — generateTestData() handles
     // that when no real slots are active.
+  }
+
+  // Compute summed master curve — average of all enabled groups
+  std::fill(std::begin(masterBins), std::end(masterBins), 0.f);
+  int enabledCount = 0;
+  for (int gi = 0; gi < kGroupCount; ++gi) {
+    if (!groups[static_cast<size_t>(gi)].enabled) continue;
+    enabledCount++;
+    for (int b = 0; b < kFftBinCount; ++b)
+      masterBins[b] += groups[static_cast<size_t>(gi)].smoothBins[b];
+  }
+  if (enabledCount > 0) {
+    const float inv = 1.f / static_cast<float>(enabledCount);
+    for (int b = 0; b < kFftBinCount; ++b)
+      masterBins[b] *= inv;
   }
 
   testPhase += 0.05f;
@@ -214,10 +229,11 @@ void SpectrumVisualizerComponent::drawInto(juce::Graphics& g,
 // =========================================================================
 void SpectrumVisualizerComponent::drawGrid(juce::Graphics& g,
                                             juce::Rectangle<float> a) const {
-  const float freqMarkers[] = {20.f, 50.f, 100.f, 200.f, 500.f,
-                                1000.f, 2000.f, 5000.f, 10000.f, 20000.f};
-  const char* freqLabels[]  = {"20","50","100","200","500",
-                                "1k","2k","5k","10k","20k"};
+  // Capped at 8kHz — voice content above this adds visual noise
+  const float freqMarkers[] = {40.f, 80.f, 160.f, 315.f, 630.f,
+                                1250.f, 2500.f, 5000.f, 8000.f};
+  const char* freqLabels[]  = {"40","80","160","315","630",
+                                "1.2k","2.5k","5k","8k"};
 
   g.setColour(juce::Colour(0xff1e1e26));
   g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
@@ -234,8 +250,8 @@ void SpectrumVisualizerComponent::drawGrid(juce::Graphics& g,
   }
 
   // Vertical frequency grid lines (log spaced)
-  const float minFreq = 20.f, maxFreq = 20000.f;
-  for (int i = 0; i < 10; ++i) {
+  const float minFreq = 20.f, maxFreq = 8000.f;
+  for (int i = 0; i < 9; ++i) {
     const float freq = freqMarkers[i];
     const float logX = a.getX() + a.getWidth() *
         (std::log10(freq / minFreq) / std::log10(maxFreq / minFreq));
@@ -251,6 +267,36 @@ void SpectrumVisualizerComponent::drawGrid(juce::Graphics& g,
 
 void SpectrumVisualizerComponent::drawCurves(juce::Graphics& g,
                                               juce::Rectangle<float> a) const {
+  // Calculate the last bin we care about (8kHz cutoff)
+  const float binHz    = static_cast<float>(cachedSampleRate) / (2.f * kFftBinCount);
+  const int   maxBin   = juce::jmin(kFftBinCount,
+      static_cast<int>(8000.f / binHz) + 1);
+
+  // Draw summed master curve first — behind group curves, subtle gray
+  {
+    juce::Path masterCurve;
+    bool hasAny = false;
+    for (int b = 0; b < maxBin; ++b) {
+      const float x   = binToX(b, a.getX(), a.getWidth(), cachedSampleRate);
+      const float lin = juce::jlimit(0.00001f, 1.f, masterBins[b]);
+      const float dB  = juce::Decibels::gainToDecibels(lin);
+      const float v   = juce::jlimit(0.f, 1.f, (dB + 80.f) / 80.f);
+      const float y   = a.getY() + a.getHeight() * (1.f - v);
+      if (!hasAny) { masterCurve.startNewSubPath(x, y); hasAny = true; }
+      else         masterCurve.lineTo(x, y);
+    }
+    if (hasAny) {
+      juce::Path filled = masterCurve;
+      filled.lineTo(a.getRight(), a.getBottom());
+      filled.lineTo(a.getX(), a.getBottom());
+      filled.closeSubPath();
+      g.setColour(juce::Colour(0x22ffffff));
+      g.fillPath(filled);
+      g.setColour(juce::Colour(0x55ffffff));
+      g.strokePath(masterCurve, juce::PathStrokeType(1.f));
+    }
+  }
+
   for (int gi = 0; gi < kGroupCount; ++gi) {
     const auto& grp = groups[gi];
     if (!grp.enabled) continue;
@@ -259,11 +305,8 @@ void SpectrumVisualizerComponent::drawCurves(juce::Graphics& g,
     const float lfe        = grp.lfeLevel;
 
     juce::Path curve;
-    for (int b = 0; b < kFftBinCount; ++b) {
+    for (int b = 0; b < maxBin; ++b) {
       const float x   = binToX(b, a.getX(), a.getWidth(), cachedSampleRate);
-      // Map FFT magnitude to dB scale (-80dB to 0dB) for display.
-      // FFT values are tiny linear amplitudes — dB mapping makes
-      // quiet signals visible at normal listening levels.
       const float lin = juce::jlimit(0.00001f, 1.f, grp.smoothBins[b]);
       const float dB  = juce::Decibels::gainToDecibels(lin);
       const float v   = juce::jlimit(0.f, 1.f, (dB + 80.f) / 80.f);
@@ -317,7 +360,7 @@ float SpectrumVisualizerComponent::binToX(int bin, float areaX,
   // fftSize = kFftBinCount * 2 = 2048
   const float binHz   = static_cast<float>(sampleRate) / (2.f * static_cast<float>(kFftBinCount));
   const float freq    = juce::jmax(20.f, static_cast<float>(juce::jmax(1, bin)) * binHz);
-  const float minFreq = 20.f, maxFreq = 20000.f;
+  const float minFreq = 20.f, maxFreq = 8000.f;
   const float logFreq = std::log10(freq / minFreq) / std::log10(maxFreq / minFreq);
   return areaX + areaW * juce::jlimit(0.f, 1.f, logFreq);
 }

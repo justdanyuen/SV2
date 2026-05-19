@@ -47,11 +47,12 @@ PluginEditor::PluginEditor(PluginProcessor& p)
 }
 
 void PluginEditor::visibilityChanged() {
-  // Start timer only once the component is actually visible and
-  // the message thread is fully running — fixes frozen UI when
-  // launched via macOS 'open' command.
-  if (isVisible() && !isTimerRunning())
+  if (isVisible() && !isTimerRunning()) {
     startTimerHz(60);
+    // Poll aggressively for first 3 seconds to catch late-initializing
+    // satellite instances during DAW session load.
+    startupTicksRemaining = 60 * 3;  // 3 seconds at 60fps
+  }
 }
 
 PluginEditor::~PluginEditor() {
@@ -61,8 +62,12 @@ PluginEditor::~PluginEditor() {
 void PluginEditor::timerCallback() {
   surroundView.tick();
   spectrumView.tick();
-  // Editor paint() calls the visualizer draw methods directly,
-  // so repainting the editor repaints the visualizers.
+
+  // During startup, force more aggressive repaints to catch
+  // late-initializing satellite instances.
+  if (startupTicksRemaining > 0)
+    --startupTicksRemaining;
+
   repaint();
 }
 

@@ -39,6 +39,7 @@ private:
   // Bitmask — bit gi set means group gi is visible in the visualizers.
   // All groups visible by default.
   uint8_t enabledMask{0x3F};  // 0011 1111 = all 6 groups on
+  int startupTicksRemaining{0};
 
   void buildControls();
   void switchTab(int index);

@@ -107,12 +107,10 @@ private:
 PluginProcessor::PluginProcessor()
     : AudioProcessor(
           BusesProperties()
-              // Default to stereo so consumer interfaces (Scarlett 2i2 etc.)
-              // work immediately. The host can negotiate up to 5.1 via
-              // isBusesLayoutSupported when a surround interface is present.
               .withInput("Input",  juce::AudioChannelSet::stereo(), true)
               .withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
   sharedMemory.open();
+
   fftAnalyzer = std::make_unique<FftAnalyzer>(channelFifos, sharedMemory, parameters);
 }
 
@@ -140,6 +138,18 @@ void PluginProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
   fftAnalyzer->setSampleRate(sampleRate);
   for (auto& fifo : channelFifos)
     fifo.prepare(sampleRate);
+
+  // Write slot here for fresh inserts where setStateInformation
+  // was never called. For session loads, setStateInformation already
+  // wrote the correct slot so this is a safe redundant write.
+  if (sharedMemory.isOpen()) {
+    const int groupId = juce::jlimit(0, 5,
+        parameters.voiceGroup.getIndex());
+    float zeroRms[kChannelCount]{};
+    float zeroFft[kFftBinCount]{};
+    sharedMemory.writeSlot(groupId, groupId, true, zeroRms, zeroFft);
+  }
+
   juce::ignoreUnused(maxBlockSize);
 }
 
@@ -189,6 +199,16 @@ void PluginProcessor::setStateInformation(const void* data, int sizeInBytes) {
   const auto result = JsonSerializer::deserialize(in, parameters);
   if (result.failed())
     DBG(result.getErrorMessage());
+
+  // Write slot AFTER state is restored so we use the correct voice group.
+  // This is the reliable initialization point — state is fully loaded here.
+  if (sharedMemory.isOpen()) {
+    const int groupId = juce::jlimit(0, 5,
+        parameters.voiceGroup.getIndex());
+    float zeroRms[kChannelCount]{};
+    float zeroFft[kFftBinCount]{};
+    sharedMemory.writeSlot(groupId, groupId, true, zeroRms, zeroFft);
+  }
 }
 
 }  // namespace surround_vis
