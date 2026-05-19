@@ -119,6 +119,42 @@ void PluginEditor::buildControls() {
                           juce::Colour(0xff888888));
   addAndMakeVisible(instanceLabel);
 
+  // Show All — enables all groups and clears solos
+  showAllButton.setColour(juce::TextButton::buttonColourId,
+                          juce::Colour(0xff2a2a35));
+  showAllButton.setColour(juce::TextButton::textColourOffId,
+                          juce::Colour(0xff888888));
+  showAllButton.onClick = [this] {
+    soloMask    = 0x00;
+    enabledMask = 0x3F;
+    for (int i = 0; i < kGroupCount; ++i) {
+      groupControls[static_cast<size_t>(i)].enableButton
+          .setToggleState(true,  juce::dontSendNotification);
+      groupControls[static_cast<size_t>(i)].soloButton
+          .setToggleState(false, juce::dontSendNotification);
+    }
+    repaint();
+  };
+  addAndMakeVisible(showAllButton);
+
+  // Hide All — disables all groups and clears solos
+  hideAllButton.setColour(juce::TextButton::buttonColourId,
+                          juce::Colour(0xff2a2a35));
+  hideAllButton.setColour(juce::TextButton::textColourOffId,
+                          juce::Colour(0xff888888));
+  hideAllButton.onClick = [this] {
+    soloMask    = 0x00;
+    enabledMask = 0x00;
+    for (int i = 0; i < kGroupCount; ++i) {
+      groupControls[static_cast<size_t>(i)].enableButton
+          .setToggleState(false, juce::dontSendNotification);
+      groupControls[static_cast<size_t>(i)].soloButton
+          .setToggleState(false, juce::dontSendNotification);
+    }
+    repaint();
+  };
+  addAndMakeVisible(hideAllButton);
+
   // Per-slot display columns (read-only status)
   for (int gi = 0; gi < kGroupCount; ++gi) {
     auto& gc = groupControls[gi];
@@ -140,40 +176,52 @@ void PluginEditor::buildControls() {
                                col.withAlpha(0.3f));
     addAndMakeVisible(gc.groupSelector);
 
-    gc.enableButton.setButtonText("show");
+    // enableButton — TextButton acting as toggle
+    gc.enableButton.setName("show_" + juce::String(gi));
+    gc.enableButton.setClickingTogglesState(true);
     gc.enableButton.setToggleState(true, juce::dontSendNotification);
-    gc.enableButton.setColour(juce::ToggleButton::textColourId, col);
+    gc.enableButton.setColour(juce::TextButton::buttonColourId,
+                              juce::Colour(0xff2a2a35));
+    gc.enableButton.setColour(juce::TextButton::buttonOnColourId,
+                              col.withAlpha(0.35f));
+    gc.enableButton.setColour(juce::TextButton::textColourOffId,
+                              col.withAlpha(0.5f));
+    gc.enableButton.setColour(juce::TextButton::textColourOnId, col);
     gc.enableButton.onClick = [this, gi] {
-      const bool on = groupControls[static_cast<size_t>(gi)].enableButton.getToggleState();
+      const bool on = groupControls[static_cast<size_t>(gi)].enableButton
+                          .getToggleState();
+      const uint8_t bit = static_cast<uint8_t>(1u << static_cast<unsigned>(gi));
       if (on)
-        enabledMask = static_cast<uint8_t>(enabledMask | (1u << gi));
+        enabledMask = static_cast<uint8_t>(enabledMask | bit);
       else
-        enabledMask = static_cast<uint8_t>(enabledMask & ~(1u << gi));
+        enabledMask = static_cast<uint8_t>(enabledMask & ~bit);
       repaint();
     };
     addAndMakeVisible(gc.enableButton);
 
-    gc.trimSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    gc.trimSlider.setRange(-12.0, 12.0, 0.1);
-    gc.trimSlider.setValue(0.0, juce::dontSendNotification);
-    gc.trimSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-    gc.trimSlider.setColour(juce::Slider::thumbColourId, col);
-    gc.trimSlider.setColour(juce::Slider::trackColourId,
+    // Solo button — additive toggle
+    gc.soloButton.setColour(juce::TextButton::buttonColourId,
+                            juce::Colour(0xff2a2a35));
+    gc.soloButton.setColour(juce::TextButton::textColourOffId,
+                            col.withAlpha(0.7f));
+    gc.soloButton.setButtonText("S");
+    gc.soloButton.setName("solo_" + juce::String(gi));
+    gc.soloButton.setClickingTogglesState(true);
+    gc.soloButton.setColour(juce::TextButton::buttonOnColourId,
                             col.withAlpha(0.4f));
-    addAndMakeVisible(gc.trimSlider);
-
-    gc.trimLabel.setText("0 dB", juce::dontSendNotification);
-    gc.trimLabel.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
-    gc.trimLabel.setColour(juce::Label::textColourId,
-                           juce::Colour(0xff666666));
-    gc.trimLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(gc.trimLabel);
-
-    gc.trimSlider.onValueChange = [this, gi] {
-      const double v = groupControls[gi].trimSlider.getValue();
-      groupControls[gi].trimLabel.setText(
-          juce::String(v, 1) + " dB", juce::dontSendNotification);
+    gc.soloButton.onClick = [this, gi] {
+      const bool nowSoloed = groupControls[static_cast<size_t>(gi)].soloButton
+                                 .getToggleState();
+      const uint8_t bit = static_cast<uint8_t>(1u << static_cast<unsigned>(gi));
+      if (nowSoloed)
+        soloMask = static_cast<uint8_t>(soloMask | bit);
+      else
+        soloMask = static_cast<uint8_t>(soloMask & ~bit);
+      repaint();
     };
+    addAndMakeVisible(gc.soloButton);
+
+
   }
 }
 
@@ -215,10 +263,14 @@ void PluginEditor::paint(juce::Graphics& g) {
 
   // Draw active visualizer with explicit bounds via drawInto()
   const auto viewBounds = juce::Rectangle<int>(0, kTabBarH, getWidth(), kViewH);
+  // When solos active, only show soloed groups.
+  // When no solos, use the normal show/hide mask.
+  const uint8_t effectiveMask = (soloMask != 0) ? soloMask : enabledMask;
+
   if (activeTab == 0)
-    surroundView.drawInto(g, viewBounds, enabledMask);
+    surroundView.drawInto(g, viewBounds, effectiveMask);
   else
-    spectrumView.drawInto(g, viewBounds, enabledMask);
+    spectrumView.drawInto(g, viewBounds, effectiveMask);
 
   // Control area separator
   const int ctrlY = kTabBarH + kViewH + 4;
@@ -266,22 +318,24 @@ void PluginEditor::resized() {
 
   // Instance selector bar
   const int ctrlY = kTabBarH + kViewH + 8;
-  instanceLabel   .setBounds(6,   ctrlY + 2,  88, 16);
-  instanceSelector.setBounds(96,  ctrlY,      160, 22);
+  instanceLabel   .setBounds(6,       ctrlY + 2, 88,  16);
+  instanceSelector.setBounds(96,      ctrlY,     160, 22);
+  showAllButton   .setBounds(W - 170, ctrlY,     80,  22);
+  hideAllButton   .setBounds(W - 86,  ctrlY,     80,  22);
 
-  // Per-group status columns — evenly spaced across full width
+  // Per-group columns
   const int colsY = ctrlY + 30;
   const int colW  = W / kGroupCount;
 
   for (int gi = 0; gi < kGroupCount; ++gi) {
-    auto& gc = groupControls[gi];
-    const int x = colW * gi + 5;
-    const int w = colW - 10;
+    auto& gc   = groupControls[static_cast<size_t>(gi)];
+    const int x    = colW * gi + 5;
+    const int w    = colW - 10;
+    const int half = (w - 4) / 2;
 
-    gc.groupSelector.setBounds(x, colsY,      w, 18);
-    gc.enableButton .setBounds(x, colsY + 22, w, 18);
-    gc.trimSlider   .setBounds(x, colsY + 44, w, 22);
-    gc.trimLabel    .setBounds(x, colsY + 68, w, 14);
+    gc.groupSelector.setBounds(x,            colsY,      w,    22);
+    gc.enableButton .setBounds(x,            colsY + 26, half, 26);
+    gc.soloButton   .setBounds(x + half + 4, colsY + 26, half, 26);
   }
 }
 

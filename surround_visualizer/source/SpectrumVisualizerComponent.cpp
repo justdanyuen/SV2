@@ -29,7 +29,7 @@ void SpectrumVisualizerComponent::tick() {
         g.bins[b]        = snap.fft[b];
         // Attack fast (0.4f), decay slow (0.08f) — classic RTA ballistics.
         const float target = snap.fft[b];
-        const float rate   = target > g.smoothBins[b] ? 0.25f : 0.05f;
+        const float rate   = target > g.smoothBins[b] ? 0.10f : 0.02f;
         g.smoothBins[b]   += (target - g.smoothBins[b]) * rate;
       }
     } else {
@@ -38,7 +38,7 @@ void SpectrumVisualizerComponent::tick() {
       auto& grp = groups[gi];
       bool anyNonZero = false;
       for (int b = 0; b < kFftBinCount; ++b) {
-        grp.smoothBins[b] *= 0.90f;
+        grp.smoothBins[b] *= 0.96f;
         if (grp.smoothBins[b] > 0.0001f) anyNonZero = true;
       }
       grp.lfeLevel *= 0.85f;
@@ -195,7 +195,7 @@ void SpectrumVisualizerComponent::drawInto(juce::Graphics& g,
         if (grp.smoothBins[b] < 0.001f)
           grp.smoothBins[b] = raw;
         else
-          grp.smoothBins[b] += (raw - grp.smoothBins[b]) * 0.25f;
+          grp.smoothBins[b] += (raw - grp.smoothBins[b]) * 0.10f;
       }
     }
   }
@@ -229,11 +229,11 @@ void SpectrumVisualizerComponent::drawInto(juce::Graphics& g,
 // =========================================================================
 void SpectrumVisualizerComponent::drawGrid(juce::Graphics& g,
                                             juce::Rectangle<float> a) const {
-  // Capped at 8kHz — voice content above this adds visual noise
+  // Capped at 10kHz — covers full vocal range with useful harmonic detail
   const float freqMarkers[] = {40.f, 80.f, 160.f, 315.f, 630.f,
-                                1250.f, 2500.f, 5000.f, 8000.f};
+                                1250.f, 2500.f, 5000.f, 10000.f};
   const char* freqLabels[]  = {"40","80","160","315","630",
-                                "1.2k","2.5k","5k","8k"};
+                                "1.2k","2.5k","5k","10k"};
 
   g.setColour(juce::Colour(0xff1e1e26));
   g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
@@ -250,7 +250,7 @@ void SpectrumVisualizerComponent::drawGrid(juce::Graphics& g,
   }
 
   // Vertical frequency grid lines (log spaced)
-  const float minFreq = 20.f, maxFreq = 8000.f;
+  const float minFreq = 20.f, maxFreq = 10000.f;
   for (int i = 0; i < 9; ++i) {
     const float freq = freqMarkers[i];
     const float logX = a.getX() + a.getWidth() *
@@ -270,7 +270,7 @@ void SpectrumVisualizerComponent::drawCurves(juce::Graphics& g,
   // Calculate the last bin we care about (8kHz cutoff)
   const float binHz    = static_cast<float>(cachedSampleRate) / (2.f * kFftBinCount);
   const int   maxBin   = juce::jmin(kFftBinCount,
-      static_cast<int>(8000.f / binHz) + 1);
+      static_cast<int>(10000.f / binHz) + 1);
 
   // Draw summed master curve first — behind group curves, subtle gray
   {
@@ -360,7 +360,7 @@ float SpectrumVisualizerComponent::binToX(int bin, float areaX,
   // fftSize = kFftBinCount * 2 = 2048
   const float binHz   = static_cast<float>(sampleRate) / (2.f * static_cast<float>(kFftBinCount));
   const float freq    = juce::jmax(20.f, static_cast<float>(juce::jmax(1, bin)) * binHz);
-  const float minFreq = 20.f, maxFreq = 8000.f;
+  const float minFreq = 20.f, maxFreq = 10000.f;
   const float logFreq = std::log10(freq / minFreq) / std::log10(maxFreq / minFreq);
   return areaX + areaW * juce::jlimit(0.f, 1.f, logFreq);
 }

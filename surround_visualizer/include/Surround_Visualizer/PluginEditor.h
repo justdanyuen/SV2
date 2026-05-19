@@ -25,20 +25,24 @@ private:
   juce::Label    instanceLabel;
   juce::ComboBox instanceSelector;
 
+  // Global controls
+  juce::TextButton showAllButton{"Show All"};
+  juce::TextButton hideAllButton{"Hide All"};
+
   SurroundVisualizerComponent surroundView;
   SpectrumVisualizerComponent spectrumView;
 
   struct GroupControls {
     juce::ComboBox     groupSelector;
-    juce::ToggleButton enableButton;
-    juce::Slider       trimSlider;
-    juce::Label        trimLabel;
+    juce::TextButton   enableButton;
+    juce::TextButton   soloButton;
   };
   std::array<GroupControls, kGroupCount> groupControls;
 
   // Bitmask — bit gi set means group gi is visible in the visualizers.
   // All groups visible by default.
   uint8_t enabledMask{0x3F};  // 0011 1111 = all 6 groups on
+  uint8_t soloMask{0x00};     // 0 = no solos active
   int startupTicksRemaining{0};
 
   void buildControls();
@@ -46,9 +50,9 @@ private:
   void timerCallback() override;
 
   static constexpr int kEditorW = 800;
-  static constexpr int kEditorH = 620;
+  static constexpr int kEditorH = 590;
   static constexpr int kTabBarH = 38;
-  static constexpr int kCtrlH   = 140;
+  static constexpr int kCtrlH   = 110;
   static constexpr int kViewH   = kEditorH - kTabBarH - kCtrlH - 8;
 
   static juce::Colour groupColour(int id);
