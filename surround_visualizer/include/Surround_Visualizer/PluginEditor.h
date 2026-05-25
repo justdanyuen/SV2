@@ -50,8 +50,8 @@ private:
   void timerCallback() override;
 
   static constexpr int kEditorW = 800;
-  static constexpr int kEditorH = 590;
-  static constexpr int kTabBarH = 38;
+  static constexpr int kEditorH = 610;
+  static constexpr int kTabBarH = 58;
   static constexpr int kCtrlH   = 110;
   static constexpr int kViewH   = kEditorH - kTabBarH - kCtrlH - 8;
 

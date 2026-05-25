@@ -162,14 +162,17 @@ void SpectrumVisualizerComponent::drawInto(juce::Graphics& g,
                                             uint8_t enabledMask) {
   if (bounds.getWidth() < 10 || bounds.getHeight() < 10) return;
 
+  // Fill entire background using integer coords directly
+  g.setColour(juce::Colour(0xff0e0e12));
+  g.fillRect(bounds.getX(), bounds.getY(),
+             bounds.getWidth(), bounds.getHeight());
+
   juce::Graphics::ScopedSaveState state(g);
   g.setOrigin(bounds.getTopLeft());
 
   const auto fb     = bounds.withZeroOrigin().toFloat();
   const float legendH = 20.f;
   const auto plotArea = fb.withTrimmedBottom(legendH).reduced(40.f, 12.f);
-
-  g.fillAll(juce::Colour(0xff0e0e12));
 
   // Wall-clock animation for test mode
   if (useTestData) {

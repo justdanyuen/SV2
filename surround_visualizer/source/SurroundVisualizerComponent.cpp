@@ -41,6 +41,15 @@ void SurroundVisualizerComponent::tick() {
         g.dirRms[4] = rmsLerp(g.dirRms[4], snap.rms[5]);
         g.lfeRms     = snap.rms[3];
         g.lfeSmooth += (g.lfeRms - g.lfeSmooth) * 0.25f;
+        // Peak hold — hold for 60 ticks (~1s at 60fps), then decay
+        if (g.lfeSmooth >= g.lfePeak) {
+          g.lfePeak          = g.lfeSmooth;
+          g.lfePeakHoldTicks = 60;
+        } else if (g.lfePeakHoldTicks > 0) {
+          --g.lfePeakHoldTicks;
+        } else {
+          g.lfePeak *= 0.94f;  // slow decay after hold
+        }
       } else {
         // Slot stale — decay RMS toward zero so curve fades out cleanly.
         auto& g = groups[gi];
@@ -162,16 +171,17 @@ void SurroundVisualizerComponent::paint(juce::Graphics& g) {
   const float cy = H * 0.5f - 10.f;
   const float maxR = std::min(W, H) * 0.36f;
 
-  drawGrid       (g, cx, cy, maxR);
-  drawSpeakers   (g, cx, cy, maxR);
-  drawLfeZone    (g, cx, cy, maxR);
-  drawLfeArcs    (g, cx, cy, maxR);
-  drawPolarCurves(g, cx, cy, maxR);
-  drawListener   (g, cx, cy);
+  drawGrid          (g, cx, cy, maxR);
+  drawSpeakers      (g, cx, cy, maxR);
+  drawLfeZone       (g, cx, cy, maxR);
+  drawLfeArcs       (g, cx, cy, maxR);
+  drawPolarCurves   (g, cx, cy, maxR);
+  drawListener      (g, cx, cy);
+  drawLfeMeterStrip (g, W, H);
 
   if (useTestData) {
     g.setColour(juce::Colour(0x88ffffff));
-    g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
+    g.setFont(juce::Font(juce::FontOptions().withHeight(12.f)));
     g.drawText("test mode — no audio", 8, static_cast<int>(H) - 18,
                200, 14, juce::Justification::left);
   }
@@ -193,10 +203,13 @@ void SurroundVisualizerComponent::drawInto(juce::Graphics& g,
 
   if (W < 10.f || H < 10.f) return;
 
+  // Fill entire background using integer coords directly
+  g.setColour(juce::Colour(0xff0e0e12));
+  g.fillRect(bounds.getX(), bounds.getY(),
+             bounds.getWidth(), bounds.getHeight());
+
   juce::Graphics::ScopedSaveState state(g);
   g.setOrigin(bounds.getTopLeft());
-
-  g.fillAll(juce::Colour(0xff0e0e12));
 
   // Wall-clock animation for test mode
   if (useTestData) {
@@ -236,12 +249,13 @@ void SurroundVisualizerComponent::drawInto(juce::Graphics& g,
       groups[static_cast<size_t>(gi)].enabled = false;
   }
 
-  drawGrid       (g, cx, cy, maxR);
-  drawSpeakers   (g, cx, cy, maxR);
-  drawLfeZone    (g, cx, cy, maxR);
-  drawLfeArcs    (g, cx, cy, maxR);
-  drawPolarCurves(g, cx, cy, maxR);
-  drawListener   (g, cx, cy);
+  drawGrid          (g, cx, cy, maxR);
+  drawSpeakers      (g, cx, cy, maxR);
+  drawLfeZone       (g, cx, cy, maxR);
+  drawLfeArcs       (g, cx, cy, maxR);
+  drawPolarCurves   (g, cx, cy, maxR);
+  drawListener      (g, cx, cy);
+  drawLfeMeterStrip (g, W, H);
 
   // Restore enabled flags
   for (int gi = 0; gi < kGroupCount; ++gi)
@@ -249,7 +263,7 @@ void SurroundVisualizerComponent::drawInto(juce::Graphics& g,
 
   if (useTestData) {
     g.setColour(juce::Colour(0x88ffffff));
-    g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
+    g.setFont(juce::Font(juce::FontOptions().withHeight(12.f)));
     g.drawText("test mode — no audio", 8, static_cast<int>(H) - 18,
                200, 14, juce::Justification::left);
   }
@@ -266,6 +280,7 @@ void SurroundVisualizerComponent::drawGrid(juce::Graphics& g,
     g.drawEllipse(cx - maxR * f, cy - maxR * f,
                   maxR * f * 2.f, maxR * f * 2.f, 0.5f);
   }
+  // crosshair already colored above
   g.drawLine(cx, cy - maxR - 12.f, cx, cy + maxR + 12.f, 0.5f);
   g.drawLine(cx - maxR - 12.f, cy, cx + maxR + 12.f, cy, 0.5f);
 }
@@ -285,7 +300,7 @@ void SurroundVisualizerComponent::drawSpeakers(juce::Graphics& g,
     g.drawEllipse(sx - 5.f, sy - 5.f, 10.f, 10.f, 0.5f);
 
     g.setColour(juce::Colour(0xff666666));
-    g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
+    g.setFont(juce::Font(juce::FontOptions().withHeight(12.f)));
     const bool above = std::sin(a) < -0.2f;
     g.drawText(names[i],
                static_cast<int>(sx) - 14,
@@ -313,7 +328,7 @@ void SurroundVisualizerComponent::drawLfeZone(juce::Graphics& g,
 
   // LFE label below listener
   g.setColour(juce::Colour(0xff444455));
-  g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
+  g.setFont(juce::Font(juce::FontOptions().withHeight(11.f)));
   g.drawText("LFE", static_cast<int>(cx) - 14,
              static_cast<int>(cy) + 14, 28, 12,
              juce::Justification::centred);
@@ -442,7 +457,7 @@ void SurroundVisualizerComponent::drawPolarCurves(juce::Graphics& g,
       const float lx     = cx + std::cos(dang) * labelR;
       const float ly     = cy + std::sin(dang) * labelR;
       g.setColour(col.withAlpha(0.85f));
-      g.setFont(juce::Font(juce::FontOptions().withHeight(10.f).withStyle("Bold")));
+      g.setFont(juce::Font(juce::FontOptions().withHeight(12.f).withStyle("Bold")));
       g.drawText(juce::StringArray{"Soprano","Mezzo","Alto","Tenor","Baritone","Bass"}[gi],
                  static_cast<int>(lx) - 28, static_cast<int>(ly) - 7,
                  56, 14, juce::Justification::centred);
@@ -455,10 +470,89 @@ void SurroundVisualizerComponent::drawListener(juce::Graphics& g,
   g.setColour(juce::Colour(0xffe0e0e0));
   g.fillEllipse(cx - 6.f, cy - 6.f, 12.f, 12.f);
   g.setColour(juce::Colour(0xff666666));
-  g.setFont(juce::Font(juce::FontOptions().withHeight(10.f)));
+  g.setFont(juce::Font(juce::FontOptions().withHeight(12.f)));
   g.drawText("listener", static_cast<int>(cx) - 28,
              static_cast<int>(cy) + 10, 56, 14,
              juce::Justification::centred);
+}
+
+// =========================================================================
+// LFE Meter Strip
+// Thin horizontal strip at the bottom of the surround field.
+// One smooth filled bar per group + peak hold dot.
+// =========================================================================
+void SurroundVisualizerComponent::drawLfeMeterStrip(juce::Graphics& g,
+                                                      float W,
+                                                      float H) const {
+  // Strip geometry
+  const float padX     = 6.f;
+  const float headerH  = 13.f;
+  const float stripH   = 14.f;
+  const float totalH   = headerH + stripH + 2.f;
+  const float headerY  = H - totalH;
+  const float stripY   = headerY + headerH + 1.f;
+  const float barAreaW = W - padX * 2.f;
+  const float barW     = (barAreaW - (kGroupCount - 1) * 3.f)
+                         / static_cast<float>(kGroupCount);
+
+  // Header row background
+  g.setColour(juce::Colour(0xbb0a0a12));
+  g.fillRoundedRectangle(padX, headerY,
+                         W - padX * 2.f, headerH + stripH + 2.f, 3.f);
+
+  // Separator line between header and meters
+  g.setColour(juce::Colour(0xff2a2a38));
+  g.drawHorizontalLine(static_cast<int>(stripY - 1.f), padX, W - padX);
+
+  // "LFE Level" header text
+  g.setColour(juce::Colour(0xff888899));
+  g.setFont(juce::Font(juce::FontOptions().withHeight(11.f)));
+  g.drawText("LFE Level", static_cast<int>(padX),
+             static_cast<int>(headerY),
+             static_cast<int>(W - padX * 2.f),
+             static_cast<int>(headerH),
+             juce::Justification::centred);
+
+  // One bar per group
+  for (int gi = 0; gi < kGroupCount; ++gi) {
+    const auto& grp = groups[static_cast<size_t>(gi)];
+    if (!grp.enabled) continue;
+
+    const float x = padX + gi * (barW + 3.f);
+    const float barInnerH = stripH - 4.f;
+    const float barY      = stripY + 2.f;
+
+    // Track background
+    g.setColour(juce::Colour(0xff1a1a22));
+    g.fillRoundedRectangle(x, barY, barW, barInnerH, 2.f);
+
+    // Level — dB mapped
+    const juce::Colour col = groupColour(grp.colorId);
+    const float lvDb   = grp.lfeSmooth > 0.00001f
+        ? juce::Decibels::gainToDecibels(
+              juce::jlimit(0.00001f, 1.f, grp.lfeSmooth))
+        : -80.f;
+    const float lvNorm = juce::jlimit(0.f, 1.f, (lvDb + 80.f) / 80.f);
+    const float fillW  = lvNorm * barW;
+
+    if (fillW > 1.f) {
+      g.setColour(col.withAlpha(0.75f + lvNorm * 0.25f));
+      g.fillRoundedRectangle(x, barY, fillW, barInnerH, 2.f);
+    }
+
+    // Peak hold dot
+    const float peakDb   = grp.lfePeak > 0.00001f
+        ? juce::Decibels::gainToDecibels(
+              juce::jlimit(0.00001f, 1.f, grp.lfePeak))
+        : -80.f;
+    const float peakNorm = juce::jlimit(0.f, 1.f, (peakDb + 80.f) / 80.f);
+    const float peakX    = x + peakNorm * barW - 1.5f;
+
+    if (peakNorm > 0.02f) {
+      g.setColour(col.brighter(0.3f));
+      g.fillRect(peakX, barY + 1.f, 2.f, barInnerH - 2.f);
+    }
+  }
 }
 
 // =========================================================================

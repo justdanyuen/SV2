@@ -31,6 +31,8 @@ private:
     float dirRms[5]{};   // L, R, C, Ls, Rs
     float lfeRms{0.f};
     float lfeSmooth{0.f};
+    float lfePeak{0.f};       // peak hold value
+    int   lfePeakHoldTicks{0}; // frames since peak was set
   };
   std::array<GroupData, kGroupCount> groups;
 
@@ -43,6 +45,7 @@ private:
   void drawLfeArcs     (juce::Graphics&, float cx, float cy, float maxR) const;
   void drawPolarCurves (juce::Graphics&, float cx, float cy, float maxR) const;
   void drawListener    (juce::Graphics&, float cx, float cy) const;
+  void drawLfeMeterStrip(juce::Graphics&, float W, float H) const;
 
   // Interpolated polar level for a group at a given angle (radians).
   // Uses only the 5 directional channels — LFE excluded.

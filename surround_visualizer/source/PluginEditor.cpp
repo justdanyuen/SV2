@@ -155,6 +155,7 @@ void PluginEditor::buildControls() {
   };
   addAndMakeVisible(hideAllButton);
 
+
   // Per-slot display columns (read-only status)
   for (int gi = 0; gi < kGroupCount; ++gi) {
     auto& gc = groupControls[gi];
@@ -251,18 +252,42 @@ void PluginEditor::paint(juce::Graphics& g) {
   g.setColour(juce::Colour(0xff1e1e26));
   g.fillRect(0, 0, getWidth(), kTabBarH);
 
-  // Plugin name left of tabs
-  g.setFont(juce::Font(juce::FontOptions().withHeight(11.f)));
-  g.setColour(juce::Colour(0xff888888));
-  g.drawText("SV2", 6, 0, 120, kTabBarH,
-             juce::Justification::centredLeft);
+  // Title — left aligned, inline with tab buttons
+  // SV2: large, bold, Avenir/Helvetica Neue for clean modern look
+  // Full name: lighter weight, slightly smaller, same family
+  const int th = kTabBarH;
 
-  // Separator line below tab bar
+  g.setFont(juce::Font(juce::FontOptions()
+      .withName("Futura")
+      .withHeight(28.f)
+      .withStyle("Bold")));
+  g.setColour(juce::Colour(0xffffffff));
+  g.drawText("SV2", 10, 0, 66, th, juce::Justification::centredLeft);
+
+  g.setFont(juce::Font(juce::FontOptions()
+      .withName("Futura")
+      .withHeight(18.f)
+      .withStyle("Medium")));
+  g.setColour(juce::Colour(0xff3a3a55));
+  g.drawText("|", 78, 0, 14, th, juce::Justification::centred);
+
+  g.setFont(juce::Font(juce::FontOptions()
+      .withName("Futura")
+      .withHeight(18.f)
+      .withStyle("Medium")));
+  g.setColour(juce::Colour(0xff8888bb));
+  g.drawText("Surround Vocal Spectrum Visualizer",
+             94, 0, 380, th, juce::Justification::centredLeft);
+
+  // Separator below full tab bar
   g.setColour(juce::Colour(0xff2a2a35));
   g.drawHorizontalLine(kTabBarH, 0.f, static_cast<float>(getWidth()));
 
-  // Draw active visualizer with explicit bounds via drawInto()
+  // Draw visualizer background from editor — guarantees full coverage
   const auto viewBounds = juce::Rectangle<int>(0, kTabBarH, getWidth(), kViewH);
+  g.setColour(juce::Colour(0xff0e0e12));
+  g.fillRect(viewBounds);
+
   // When solos active, only show soloed groups.
   // When no solos, use the normal show/hide mask.
   const uint8_t effectiveMask = (soloMask != 0) ? soloMask : enabledMask;
@@ -285,7 +310,7 @@ void PluginEditor::paint(juce::Graphics& g) {
                static_cast<int>(colW), kCtrlH);
   }
 
-  // Subtle status — shows which groups are actively writing data
+  // Status dots — active groups
   static const char* grpNames[] = {"So","Me","Al","Te","Ba","Bs"};
   g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
   float sx = 6.f;
@@ -308,8 +333,13 @@ void PluginEditor::resized() {
   const int W = getWidth();
 
   // Tab bar
-  surroundTab.setBounds(8, 5, 150, kTabBarH - 10);
-  spectrumTab.setBounds(164, 5, 170, kTabBarH - 10);
+  // Tabs right-aligned in header bar
+  // Tabs: fixed height with equal top/bottom margin inside the bar
+  const int tabH   = 30;
+  const int tabY   = (kTabBarH - tabH) / 2;
+  const int tabR   = W - 8;
+  spectrumTab .setBounds(tabR - 168, tabY, 164, tabH);
+  surroundTab .setBounds(tabR - 168 - 152, tabY, 148, tabH);
 
   // Visualizer area
   const auto viewBounds = juce::Rectangle<int>(0, kTabBarH, W, kViewH);
