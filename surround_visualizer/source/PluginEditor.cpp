@@ -76,14 +76,14 @@ void PluginEditor::timerCallback() {
 // =========================================================================
 void PluginEditor::buildControls() {
   // Instance selector — sets which voice group THIS instance writes to
-  instanceSelector.addItem("Soprano",  1);
-  instanceSelector.addItem("Mezzo",    2);
-  instanceSelector.addItem("Alto",     3);
-  instanceSelector.addItem("Tenor",    4);
-  instanceSelector.addItem("Baritone", 5);
-  instanceSelector.addItem("Bass",     6);
-  const int currentGroup = juce::jlimit(0, 5,
-      svProcessor.getParameterRefs().voiceGroup.getIndex());
+  instanceSelector.addItem("-- Select Group --", 1);
+  instanceSelector.addItem("Soprano",   2);
+  instanceSelector.addItem("Mezzo",     3);
+  instanceSelector.addItem("Alto",      4);
+  instanceSelector.addItem("Tenor",     5);
+  instanceSelector.addItem("Baritone",  6);
+  instanceSelector.addItem("Bass",      7);
+  const int currentGroup = svProcessor.getParameterRefs().voiceGroup.getIndex();
   instanceSelector.setSelectedId(currentGroup + 1, juce::dontSendNotification);
   instanceSelector.setColour(juce::ComboBox::backgroundColourId,
                              juce::Colour(0xff2a2a35));
@@ -92,24 +92,32 @@ void PluginEditor::buildControls() {
   instanceSelector.setColour(juce::ComboBox::outlineColourId,
                              juce::Colour(0xff666666));
   instanceSelector.onChange = [this] {
-    const int sel = juce::jlimit(0, 5, instanceSelector.getSelectedId() - 1);
-    const float norm = static_cast<float>(sel) / 5.f;
-    svProcessor.getParameterRefs().voiceGroup.setValueNotifyingHost(norm);
-    // Update selector color to match chosen group
-    const juce::Colour col = groupColour(sel);
-    instanceSelector.setColour(juce::ComboBox::textColourId, col);
-    instanceSelector.setColour(juce::ComboBox::outlineColourId, col.withAlpha(0.6f));
-    instanceSelector.setColour(juce::ComboBox::arrowColourId, col);
+    const int selId    = instanceSelector.getSelectedId();
+    const int paramIdx = selId - 1;  // 0=placeholder, 1=Soprano ... 6=Bass
+    svProcessor.getParameterRefs().voiceGroup.setValueNotifyingHost(
+        svProcessor.getParameterRefs().voiceGroup.convertTo0to1(paramIdx));
+    if (selId > 1) {
+      const int groupIdx = selId - 2;  // 0=Soprano ... 5=Bass for colour
+      const juce::Colour col = groupColour(groupIdx);
+      instanceSelector.setColour(juce::ComboBox::textColourId, col);
+      instanceSelector.setColour(juce::ComboBox::outlineColourId, col.withAlpha(0.6f));
+      instanceSelector.setColour(juce::ComboBox::arrowColourId, col);
+    } else {
+      instanceSelector.setColour(juce::ComboBox::textColourId,  juce::Colour(0xff888888));
+      instanceSelector.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff444444));
+      instanceSelector.setColour(juce::ComboBox::arrowColourId, juce::Colour(0xff888888));
+    }
     repaint();
   };
-  // Set initial color from current parameter
+  // Set initial color
   {
-    const int cur = juce::jlimit(0, 5,
-        svProcessor.getParameterRefs().voiceGroup.getIndex());
-    const juce::Colour col = groupColour(cur);
-    instanceSelector.setColour(juce::ComboBox::textColourId, col);
-    instanceSelector.setColour(juce::ComboBox::outlineColourId, col.withAlpha(0.6f));
-    instanceSelector.setColour(juce::ComboBox::arrowColourId, col);
+    const int cur = svProcessor.getParameterRefs().voiceGroup.getIndex();
+    if (cur > 0) {
+      const juce::Colour col = groupColour(cur - 1);
+      instanceSelector.setColour(juce::ComboBox::textColourId, col);
+      instanceSelector.setColour(juce::ComboBox::outlineColourId, col.withAlpha(0.6f));
+      instanceSelector.setColour(juce::ComboBox::arrowColourId, col);
+    }
   }
   addAndMakeVisible(instanceSelector);
 
@@ -310,19 +318,26 @@ void PluginEditor::paint(juce::Graphics& g) {
                static_cast<int>(colW), kCtrlH);
   }
 
-  // Status dots — active groups
-  static const char* grpNames[] = {"So","Me","Al","Te","Ba","Bs"};
-  g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
-  float sx = 6.f;
-  for (int gi = 0; gi < kGroupCount; ++gi) {
-    PluginProcessor::GroupSnapshot snap;
-    const bool active = svProcessor.readGroupSnapshot(gi, snap) && snap.enabled;
-    g.setColour(active ? groupColour(gi).withAlpha(0.8f)
-                       : juce::Colour(0x33ffffff));
-    g.drawText(grpNames[gi], static_cast<int>(sx),
-               getHeight() - 14, 18, 12,
-               juce::Justification::centred);
-    sx += 20.f;
+  // Debug status — shows both write side and read side for Alto (slot 2)
+  {
+    const int   wGroup = svProcessor.dbgLastGroupId.load(std::memory_order_relaxed);
+    const bool  wEn    = svProcessor.dbgLastEnabled.load(std::memory_order_relaxed);
+    const int   wCnt   = svProcessor.dbgWriteCount .load(std::memory_order_relaxed);
+    const bool  rValid = svProcessor.dbgReadValid  .load(std::memory_order_relaxed);
+    const bool  rEn    = svProcessor.dbgReadEnabled.load(std::memory_order_relaxed);
+    static const char* gn[] = {"So","Me","Al","Te","Ba","Bs"};
+    const juce::String txt =
+        juce::String("W:") +
+        (wGroup >= 0 && wGroup < 6 ? gn[wGroup] : "?") +
+        " idx:" + juce::String(wGroup) +
+        " en:" + (wEn ? "Y" : "N") +
+        " cnt:" + juce::String(wCnt % 10000) +
+        "  | R[2] valid:" + (rValid ? "Y" : "N") +
+        " en:" + (rEn ? "Y" : "N");
+    g.setFont(juce::Font(juce::FontOptions().withHeight(9.f)));
+    g.setColour(juce::Colour(0xff888888));
+    g.drawText(txt, 4, getHeight() - 14, getWidth() - 8, 12,
+               juce::Justification::centredLeft);
   }
 }
 

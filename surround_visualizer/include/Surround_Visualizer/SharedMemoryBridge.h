@@ -55,10 +55,11 @@ public:
         file, juce::MemoryMappedFile::AccessMode::readWrite, false);
     if (!mappedFile->getData()) return false;
     layout = reinterpret_cast<SharedMemoryLayout*>(mappedFile->getData());
-    if (layout->magic != 0x535653) {
+    // Magic 0x535654 = SV2 v2 — bumped to force reset after index change
+    if (layout->magic != 0x535654) {
       std::memset(layout, 0, sizeof(SharedMemoryLayout));
-      layout->magic   = 0x535653;
-      layout->version = 1;
+      layout->magic   = 0x535654;
+      layout->version = 2;
     }
     return true;
   }
@@ -78,14 +79,18 @@ public:
     if (!layout) return;
     jassert(groupIndex >= 0 && groupIndex < kGroupCount);
     auto& slot = layout->slots[groupIndex];
+    // Ensure seq is even before starting — if a previous write was
+    // interrupted mid-way the lock could be stuck odd, which causes
+    // all subsequent reads to fail. Force to nearest even value first.
     auto seq = slot.seqLock.load(std::memory_order_relaxed);
-    slot.seqLock.store(seq + 1, std::memory_order_release);
+    if (seq & 1u) seq++;  // force even if stuck odd
+    slot.seqLock.store(seq + 1, std::memory_order_release);  // mark write start (odd)
     slot.colorGroupId = colorId;
     slot.enabled      = isEnabled ? 1 : 0;
     slot.lastWriteMs  = juce::Time::getMillisecondCounter();
     std::memcpy(slot.channelRms,   rms, sizeof(rms));
     std::memcpy(slot.fftMagnitude, fft, sizeof(fft));
-    slot.seqLock.store(seq + 2, std::memory_order_release);
+    slot.seqLock.store(seq + 2, std::memory_order_release);  // mark write done (even)
   }
 
   bool readSlot(int groupIndex,
@@ -96,9 +101,15 @@ public:
     if (!layout) return false;
     jassert(groupIndex >= 0 && groupIndex < kGroupCount);
     const auto& slot = layout->slots[groupIndex];
-    for (int attempt = 0; attempt < 4; ++attempt) {
+    // Spin up to 32 attempts with a pause between — handles seqLock
+    // temporarily odd (write in progress) without false negatives.
+    for (int attempt = 0; attempt < 32; ++attempt) {
       const auto seq1 = slot.seqLock.load(std::memory_order_acquire);
-      if (seq1 & 1u) continue;
+      if (seq1 & 1u) {
+        // Write in progress — yield and retry
+        juce::Thread::yield();
+        continue;
+      }
       outColorId = slot.colorGroupId;
       outEnabled = slot.enabled != 0;
       const uint32_t writeMs = slot.lastWriteMs;
@@ -106,13 +117,10 @@ public:
       std::memcpy(outFft, slot.fftMagnitude, sizeof(outFft));
       const auto seq2 = slot.seqLock.load(std::memory_order_acquire);
       if (seq1 != seq2) continue;
-      // Treat slot as stale if not written in the last 2000ms.
-      // 2s timeout accommodates DAW session load where multiple instances
-      // initialize simultaneously and may not write immediately.
+      if (writeMs == 0u) return false;
       const uint32_t now = juce::Time::getMillisecondCounter();
-      const uint32_t age = now - writeMs;
-      if (age > 2000u) return false;
-      return outEnabled;
+      if (now - writeMs > 5000u) return false;
+      return true;
     }
     return false;
   }

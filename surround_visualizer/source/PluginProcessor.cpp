@@ -12,11 +12,17 @@ public:
 
   FftAnalyzer(std::array<SampleFifo<float>, kChannelCount>& fifos,
               SharedMemoryBridge& bridge,
-              Parameters& params)
+              Parameters& params,
+              std::atomic<int>& dbgGroup,
+              std::atomic<bool>& dbgEn,
+              std::atomic<int>& dbgCount)
       : juce::Thread("SV2 FFT"),
         channelFifos(fifos),
         sharedMemory(bridge),
         parameters(params),
+        dbgLastGroupId(dbgGroup),
+        dbgLastEnabled(dbgEn),
+        dbgWriteCount(dbgCount),
         fft(kFftOrder),
         window(kFftSize, juce::dsp::WindowingFunction<float>::hann) {
     startThread(juce::Thread::Priority::low);
@@ -38,25 +44,37 @@ private:
     while (!threadShouldExit()) {
       bool anyData = false;
 
+      // Clear FFT accumulation buffer before mixing channels
+      std::fill(fftData.begin(), fftData.end(), 0.f);
+      int fftContribCount = 0;
+
       for (int ch = 0; ch < kChannelCount; ++ch) {
         channelFifos[ch].popAll(scratchBuf);
         const int n = scratchBuf.getNumSamples();
         if (n == 0) continue;
         anyData = true;
 
-        // RMS
+        // RMS per channel
         float sumSq = 0.f;
         const float* data = scratchBuf.getReadPointer(0);
         for (int i = 0; i < n; ++i) sumSq += data[i] * data[i];
         rmsAccum[ch] = std::sqrt(sumSq / static_cast<float>(n));
 
-        // Fill FFT buffer from channel 0 (L) for spectrum display
-        if (ch == 0) {
+        // Mix ALL active channels into FFT buffer so spatial placement
+        // (rear, center, surround) doesn't affect spectrum display.
+        // LFE (ch 3) excluded — sub content would skew the spectrum.
+        if (ch != 3) {
           const int copyLen = std::min(n, kFftSize);
-          std::copy_n(data, copyLen, fftData.begin());
-          if (copyLen < kFftSize)
-            std::fill(fftData.begin() + copyLen, fftData.begin() + kFftSize, 0.f);
+          for (int i = 0; i < copyLen; ++i)
+            fftData[i] += data[i];
+          ++fftContribCount;
         }
+      }
+
+      // Normalize mixed FFT buffer by number of contributing channels
+      if (fftContribCount > 1) {
+        const float inv = 1.f / static_cast<float>(fftContribCount);
+        for (auto& s : fftData) s *= inv;
       }
 
       if (!anyData) {
@@ -78,8 +96,13 @@ private:
       for (auto& v : outFft)   v *= trimGain;
       for (auto& v : rmsAccum) v *= trimGain;
 
-      const int  groupId = parameters.voiceGroup.getIndex();
+      const int rawIndex = parameters.voiceGroup.getIndex();
+      if (rawIndex == 0) { wait(33); continue; }  // placeholder
+      const int  groupId   = rawIndex - 1;  // 1=Soprano->0 ... 6=Bass->5
       const bool isEnabled = parameters.enabled.get();
+      dbgLastGroupId.store(groupId, std::memory_order_relaxed);
+      dbgLastEnabled.store(isEnabled, std::memory_order_relaxed);
+      dbgWriteCount.fetch_add(1, std::memory_order_relaxed);
       sharedMemory.writeSlot(groupId, groupId, isEnabled, rmsPeak, outFft);
 
       // Apply peak hold with decay rather than resetting to zero
@@ -95,7 +118,10 @@ private:
 
   std::array<SampleFifo<float>, kChannelCount>& channelFifos;
   SharedMemoryBridge& sharedMemory;
-  Parameters& parameters;
+  Parameters&               parameters;
+  std::atomic<int>&         dbgLastGroupId;
+  std::atomic<bool>&        dbgLastEnabled;
+  std::atomic<int>&         dbgWriteCount;
   juce::dsp::FFT fft;
   juce::dsp::WindowingFunction<float> window;
   std::atomic<double> sampleRate{44100.0};
@@ -111,7 +137,8 @@ PluginProcessor::PluginProcessor()
               .withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
   sharedMemory.open();
 
-  fftAnalyzer = std::make_unique<FftAnalyzer>(channelFifos, sharedMemory, parameters);
+  fftAnalyzer = std::make_unique<FftAnalyzer>(channelFifos, sharedMemory, parameters,
+                                               dbgLastGroupId, dbgLastEnabled, dbgWriteCount);
 }
 
 PluginProcessor::~PluginProcessor() {
@@ -139,15 +166,18 @@ void PluginProcessor::prepareToPlay(double sampleRate, int maxBlockSize) {
   for (auto& fifo : channelFifos)
     fifo.prepare(sampleRate);
 
-  // Write slot here for fresh inserts where setStateInformation
-  // was never called. For session loads, setStateInformation already
-  // wrote the correct slot so this is a safe redundant write.
+  // Always write slot in prepareToPlay so lastWriteMs is fresh.
+  // Without this, fresh inserts (no saved state) have lastWriteMs=0
+  // which makes age = now - 0 = huge, failing the 2000ms stale check.
+  // The FftAnalyzer overwrites this with real data almost immediately.
   if (sharedMemory.isOpen()) {
-    const int groupId = juce::jlimit(0, 5,
-        parameters.voiceGroup.getIndex());
-    float zeroRms[kChannelCount]{};
-    float zeroFft[kFftBinCount]{};
-    sharedMemory.writeSlot(groupId, groupId, true, zeroRms, zeroFft);
+    const int rawIdx = parameters.voiceGroup.getIndex();
+    if (rawIdx > 0) {
+      const int groupId = rawIdx - 1;
+      float zeroRms[kChannelCount]{};
+      float zeroFft[kFftBinCount]{};
+      sharedMemory.writeSlot(groupId, groupId, true, zeroRms, zeroFft);
+    }
   }
 
   juce::ignoreUnused(maxBlockSize);
@@ -177,10 +207,17 @@ void PluginProcessor::processBlock(juce::AudioBuffer<float>& buffer,
   }
 }
 
-bool PluginProcessor::readGroupSnapshot(int groupIndex, GroupSnapshot& out) const {
-  return sharedMemory.readSlot(groupIndex,
-                               out.colorId, out.enabled,
-                               out.rms, out.fft);
+bool PluginProcessor::readGroupSnapshot(int groupIndex, GroupSnapshot& out) {
+  const bool valid = sharedMemory.readSlot(groupIndex,
+                                           out.colorId, out.enabled,
+                                           out.rms, out.fft);
+  // Store read-side debug for slot 2 (Alto) specifically
+  if (groupIndex == 2) {
+    dbgReadSlot   .store(groupIndex,  std::memory_order_relaxed);
+    dbgReadValid  .store(valid,       std::memory_order_relaxed);
+    dbgReadEnabled.store(out.enabled, std::memory_order_relaxed);
+  }
+  return valid;
 }
 
 bool PluginProcessor::hasEditor() const { return true; }
@@ -202,12 +239,15 @@ void PluginProcessor::setStateInformation(const void* data, int sizeInBytes) {
 
   // Write slot AFTER state is restored so we use the correct voice group.
   // This is the reliable initialization point — state is fully loaded here.
+  stateRestored = true;
   if (sharedMemory.isOpen()) {
-    const int groupId = juce::jlimit(0, 5,
-        parameters.voiceGroup.getIndex());
-    float zeroRms[kChannelCount]{};
-    float zeroFft[kFftBinCount]{};
-    sharedMemory.writeSlot(groupId, groupId, true, zeroRms, zeroFft);
+    const int rawIdx = parameters.voiceGroup.getIndex();
+    if (rawIdx > 0) {
+      const int groupId = rawIdx - 1;
+      float zeroRms[kChannelCount]{};
+      float zeroFft[kFftBinCount]{};
+      sharedMemory.writeSlot(groupId, groupId, true, zeroRms, zeroFft);
+    }
   }
 }
 

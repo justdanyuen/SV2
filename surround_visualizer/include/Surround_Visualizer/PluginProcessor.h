@@ -46,7 +46,7 @@ public:
     float fft[kFftBinCount]{};
   };
 
-  bool readGroupSnapshot(int groupIndex, GroupSnapshot& out) const;
+  bool readGroupSnapshot(int groupIndex, GroupSnapshot& out);
 
   double getSampleRateThreadSafe() const noexcept {
     return currentSampleRate.load(std::memory_order_relaxed);
@@ -59,6 +59,19 @@ public:
   bool sharedMemoryIsOpen() const noexcept {
     return sharedMemory.isOpen();
   }
+
+  // True once setStateInformation has been called at least once.
+  // Prevents prepareToPlay from writing slot 0 before state is restored.
+  bool stateRestored{false};
+
+  // Debug info readable by the editor
+  std::atomic<int>  dbgLastGroupId{-1};
+  std::atomic<bool> dbgLastEnabled{false};
+  std::atomic<int>  dbgWriteCount{0};
+
+  mutable std::atomic<int>  dbgReadSlot{-1};
+  mutable std::atomic<bool> dbgReadValid{false};
+  mutable std::atomic<bool> dbgReadEnabled{false};
 
   void reinitSlot(int groupId) {
     if (!sharedMemory.isOpen()) return;

@@ -16,7 +16,7 @@ juce::AudioParameterChoice& createVoiceGroupParameter(juce::AudioProcessor& proc
       std::make_unique<juce::AudioParameterChoice>(
           juce::ParameterID{"voice.group", versionHint},
           "Voice group",
-          juce::StringArray{"Soprano", "Mezzo", "Alto", "Tenor", "Baritone", "Bass"},
+          juce::StringArray{"-- Select Group --", "Soprano", "Mezzo", "Alto", "Tenor", "Baritone", "Bass"},
           0));
 }
 
