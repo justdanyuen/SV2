@@ -24,11 +24,11 @@ jobs:
 
     steps:
       - name: Check out repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # JUCE is pulled by CPM into libs/juce; caching it saves a big clone every run.
       - name: Cache CPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             libs/juce
@@ -42,7 +42,7 @@ jobs:
         run: cmake --build --preset release --parallel
 
       - name: Upload plugin binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: SV2-${{ matrix.name }}
           path: cmake-release-build/SV2Plugin_artefacts/Release/
