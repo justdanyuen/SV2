@@ -14,3 +14,4 @@ build/
 cmake-*build*/
 libs/googletest/
 libs/wolfsound-dsp-utils/
+libs/juce/
