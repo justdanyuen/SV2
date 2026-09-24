@@ -1,0 +1,49 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:   # adds a "Run workflow" button in the Actions tab
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false   # let the other OS finish even if one fails
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+
+    env:
+      CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      # JUCE is pulled by CPM into libs/juce; caching it saves a big clone every run.
+      - name: Cache CPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            libs/juce
+            .cpm-cache
+          key: cpm-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'test/CMakeLists.txt', 'cmake/**') }}
+
+      - name: Configure
+        run: cmake --preset release -DSV2_COPY_PLUGIN=OFF
+
+      - name: Build
+        run: cmake --build --preset release --parallel
+
+      - name: Upload plugin binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: SV2-${{ matrix.name }}
+          path: cmake-release-build/SV2Plugin_artefacts/Release/
+          if-no-files-found: error

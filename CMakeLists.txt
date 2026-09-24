@@ -44,6 +44,7 @@ endif()
 # -------------------------------------------------------------------------
 set(SV2_PLUGIN_NAME "SV2")
 set(SV2_FULL_NAME "Surround Vocal Spectrum Visualizer")
+option(SV2_COPY_PLUGIN "Copy built plugins to system plug-in folders" ON) 
 
 # Point JUCE to the bundled AAX SDK
 juce_set_aax_sdk_path("${CMAKE_CURRENT_SOURCE_DIR}/libs/juce/modules/juce_audio_plugin_client/AAX/SDK")
@@ -64,7 +65,7 @@ juce_add_plugin(
   NEEDS_MIDI_INPUT  FALSE
   NEEDS_MIDI_OUTPUT FALSE
   VST3_AUTO_MANIFEST FALSE
-  COPY_PLUGIN_AFTER_BUILD TRUE
+  COPY_PLUGIN_AFTER_BUILD ${SV2_COPY_PLUGIN}
   VST3_CATEGORIES   "Fx|Analyzer"
 )
 
