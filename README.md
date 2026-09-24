@@ -1,3 +1,5 @@
+![Build](https://github.com/<username>/<repo>/actions/workflows/build.yml/badge.svg)
+
 # SV2 — Surround Vocal Spectrum Visualizer
 
 A real-time surround sound spatial and frequency visualizer plugin for choral and ensemble mixing in 5.1 surround sessions. Built with JUCE 8 as part of a Berklee College of Music culminating experience project.
